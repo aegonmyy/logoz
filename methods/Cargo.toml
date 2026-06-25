@@ -1,0 +1,4 @@
+[workspace]
+resolver = "2"
+# guest declares its own [workspace] (risc0 requires a separate toolchain),
+# so it is not listed here — cargo risczero build targets it directly.
