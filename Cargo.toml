@@ -1,0 +1,32 @@
+[workspace]
+members = [
+    "chronicle_registry_core",
+    "examples",
+]
+exclude = [
+    "methods",
+    "batch-anchor",
+    "ffi",
+    "tools",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+borsh = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest = { version = "0.12", features = ["json", "multipart"] }
+sha2 = "0.10"
+hex = "0.4"
+chronicle_registry_core = { path = "chronicle_registry_core" }
