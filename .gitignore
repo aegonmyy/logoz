@@ -1,0 +1,29 @@
+target/
+methods/guest/target/
+*.bin
+.chronicle_registry-state
+.chronicle_registry-state.tmp
+.scaffold
+
+# batch-anchor — sibling tool living under chronicle-registry/
+batch-anchor/target/
+batch-anchor/store/store.sqlite3*
+
+# ffi + tools — built outside main workspace via `make ffi`
+ffi/target/
+tools/target/
+
+# Pre-built FFI .so vendored by `make ffi`. Committed to git so cloners
+# can `nix build` without first building the (heavy LEZ-dep) Rust crate.
+# x86_64-linux only — see logos-chronicle/docs/anchoring.md § Distribution
+# for other architectures.
+# logos-chronicle/vendored/libchronicle_registry_ffi.so
+
+result
+result-*
+
+# Project-local basecamp data dir created by scripts/run-app.sh
+.basecamp-data/
+
+# Nix
+.direnv/
