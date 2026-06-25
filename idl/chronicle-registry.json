@@ -1,0 +1,82 @@
+{
+  "version": "0.1.0",
+  "name": "chronicle_registry",
+  "instructions": [
+    {
+      "name": "init_registry",
+      "accounts": [
+        {
+          "name": "registry",
+          "writable": true,
+          "signer": false,
+          "init": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": "registry"
+              }
+            ]
+          }
+        },
+        {
+          "name": "anchorer",
+          "writable": false,
+          "signer": true,
+          "init": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "index_batch",
+      "accounts": [
+        {
+          "name": "registry",
+          "writable": true,
+          "signer": false,
+          "init": false,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": "registry"
+              }
+            ]
+          }
+        },
+        {
+          "name": "anchorer",
+          "writable": false,
+          "signer": true,
+          "init": false
+        }
+      ],
+      "args": [
+        {
+          "name": "cids",
+          "type": {
+            "vec": "string"
+          }
+        },
+        {
+          "name": "metadata_hashes",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        },
+        {
+          "name": "anchor_timestamps",
+          "type": {
+            "vec": "u32"
+          }
+        }
+      ]
+    }
+  ]
+}
