@@ -1,0 +1,27 @@
+[delivery]
+rest_url             = "http://127.0.0.1:8645"
+content_topic        = "/chronicle/1/document-index/json"
+poll_ms              = 1000
+# How far back to query nwaku's store-protocol on startup to recover
+# messages broadcast while the anchor was down.  Set to 0 to disable.
+store_lookback_hours = 24
+
+[registry]
+spel_toml         = "../spel.toml"
+sequencer_url     = "http://127.0.0.1:3040"
+wallet_home       = "../.scaffold/wallet"
+# Set your signer account ID after creating one:
+#   lgs wallet -- account new public
+#   lgs wallet topup <account_id>
+signer_account_id = "REPLACE_WITH_SIGNER_ACCOUNT_ID"
+# 64-char hex program ID from `spel program-id` after `make build`:
+#   spel program-id methods/guest/target/riscv32im-risc0-zkvm-elf/docker/chronicle_registry.bin --format hex
+# Or set via env: BATCH_ANCHOR_REGISTRY__PROGRAM_ID=<hex>
+program_id        = "REPLACE_WITH_PROGRAM_ID_FROM_MAKE_BUILD"
+
+[batch]
+max_size      = 50
+flush_after_s = 30
+
+[node]
+compose_file = "docker-compose.yml"
