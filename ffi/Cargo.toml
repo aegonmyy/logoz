@@ -1,0 +1,18 @@
+[workspace]
+
+[package]
+name = "chronicle_registry_ffi"
+version = "0.1.0"
+edition = "2021"
+description = "C FFI for the chronicle-registry SPEL program."
+
+[lib]
+name = "chronicle_registry_ffi"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+borsh       = { version = "1", features = ["derive"] }
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+hex         = "0.4"
+chronicle_registry_core = { path = "../chronicle_registry_core" }
