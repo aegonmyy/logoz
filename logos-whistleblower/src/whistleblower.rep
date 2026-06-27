@@ -1,0 +1,26 @@
+class Whistleblower
+{
+    PROP(QString status READWRITE)
+    PROP(bool busy READWRITE)
+    PROP(QString currentPublishId READWRITE)
+    PROP(QString cid READWRITE)
+    PROP(QString metadataHash READWRITE)
+    PROP(QString lastError READWRITE)
+    PROP(bool deliveryReady READWRITE)
+    PROP(QString publishedRecordsJson READWRITE)
+
+    SLOT(void publish(QString path, QString contentType, QString title, QString description, QString tagsCsv))
+    SLOT(QString listPublishedJson())
+    SLOT(void startBroadcaster())
+    SLOT(void refreshPublishedList())
+    SLOT(void clearHistory())
+
+    PROP(QString anchorCapabilitiesJson READWRITE)
+    PROP(QString anchorConfigJson READWRITE)
+    PROP(QString anchorsJson READWRITE)
+
+    SLOT(void anchorPublished(QString publishId))
+    SLOT(void refreshAnchorCapabilities())
+    SLOT(void setAnchorConfig(QString cfgJson))
+    SLOT(void refreshAnchors())
+}
