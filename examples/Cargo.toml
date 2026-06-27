@@ -1,0 +1,20 @@
+[package]
+name = "chronicle_registry-examples"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "generate_idl"
+path = "src/bin/generate_idl.rs"
+
+[[bin]]
+name = "chronicle_registry_cli"
+path = "src/bin/chronicle_registry_cli.rs"
+
+[dependencies]
+spel-framework = { git = "https://github.com/Thompsonmina/spel.git", branch = "cli-vec-string" }
+nssa_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.2.0-rc3" }
+spel = { git = "https://github.com/Thompsonmina/spel.git", branch = "cli-vec-string" }
+chronicle_registry_core = { path = "../chronicle_registry_core" }
+serde_json = "1.0"
+tokio = { version = "1.28.2", features = ["net", "rt-multi-thread", "sync", "macros"] }
