@@ -1,0 +1,26 @@
+{
+  "name": "whistleblower",
+  "version": "1.0.0",
+  "description": "Basecamp UI for publishing whistleblower documents through the Chronicle module",
+  "type": "ui_qml",
+  "category": "ui",
+  "main": "whistleblower_plugin",
+  "view": "qml/Main.qml",
+  "icon": "icons/whistleblower.png",
+  "dependencies": [
+    "chronicle"
+  ],
+  "nix": {
+    "packages": {
+      "build": [],
+      "runtime": []
+    },
+    "external_libraries": [],
+    "cmake": {
+      "find_packages": [],
+      "extra_sources": [],
+      "extra_include_dirs": [],
+      "extra_link_libraries": []
+    }
+  }
+}
