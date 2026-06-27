@@ -1,0 +1,25 @@
+{
+  "name": "chronicle",
+  "version": "1.0.0",
+  "description": "Reusable document indexing module for Storage upload, Delivery broadcast, and later anchoring",
+  "author": "",
+  "type": "core",
+  "category": "general",
+  "main": "chronicle_plugin",
+  "dependencies": ["storage_module", "delivery_module"],
+  "include": [],
+  "capabilities": [],
+  "nix": {
+    "packages": {
+      "build": [],
+      "runtime": []
+    },
+    "external_libraries": [],
+    "cmake": {
+      "find_packages": [],
+      "extra_sources": [],
+      "extra_include_dirs": [],
+      "extra_link_libraries": []
+    }
+  }
+}
