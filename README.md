@@ -131,6 +131,29 @@ lgs basecamp launch
 ./scripts/ci-local.sh
 ```
 
+## On-chain approach: LEZ SPEL program (not zone SDK)
+
+The registry is implemented as a RISC0 ZK guest program deployed via the SPEL
+framework (`#[lez_program]` / `#[instruction]` macros), not via the zone SDK.
+
+**Why LEZ over the zone SDK:**
+
+The zone SDK approach requires a single designated actor to perform consensus
+inscription — that actor becomes a centralised trust assumption. Anyone who
+controls it can censor or delay anchoring. For a whistleblower tool, that is
+exactly the threat model we are trying to eliminate.
+
+A LEZ SPEL program runs inside the sequencer's ZK circuit: every `index_batch`
+call produces a RISC0 proof that any peer can verify. No single actor controls
+admission. The `init_registry` instruction is permissionless — the PDA is open
+to any signer — so the registry itself cannot be seized or blocked without
+stopping the entire LEZ network.
+
+The tradeoff is tooling maturity: the zone SDK has a simpler deployment story
+today and decentralised sequencers for zones are not yet shipped. We accept
+that tradeoff because the security model of the LEZ approach is materially
+stronger for the censorship-resistance use case.
+
 ## LP-0017 Requirement Map
 
 | # | Requirement | Where |

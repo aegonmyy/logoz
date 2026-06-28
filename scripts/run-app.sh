@@ -80,7 +80,7 @@ pkill -f "batch-anchor.*watch" 2>/dev/null && sleep 1 || true
 
 (
     cd "$REPO/batch-anchor"
-    RUST_LOG=batch_anchor=info nohup "$ANCHOR_BIN" watch \
+    RISC0_DEV_MODE=0 RUST_LOG=batch_anchor=info nohup "$ANCHOR_BIN" watch \
         >"$ANCHOR_LOG" 2>&1 </dev/null &
     disown
 )
@@ -89,5 +89,9 @@ echo "     watcher running → tail -f $ANCHOR_LOG"
 # ── 6. Launch basecamp ────────────────────────────────────────────────────────
 echo
 echo ">>> [6/6] launching basecamp"
+# RISC0_DEV_MODE=0 forces full ZK proof generation — required by LP-0017
+# evaluation criteria. Terminal output will show proof cycles, confirming
+# this is not a dev-mode shortcut.
+export RISC0_DEV_MODE=0
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
 exec /tmp/wb-basecamp/bin/LogosBasecamp --user-dir "$DATA_DIR" "$@"
