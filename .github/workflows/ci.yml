@@ -1,0 +1,384 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+# Four parallel jobs:
+#
+#   fmt      — cargo fmt --check (chronicle-registry workspace + batch-anchor)
+#   build    — cargo build + test for chronicle_registry_core and batch-anchor
+#   publish  — full publish flow via `nix run .#smoke-publish` against a
+#              real nwaku container
+#   anchor   — full publish + on-chain anchor flow via `nix run .#smoke-anchor`
+#              against a freshly-deployed chronicle-registry SPEL program on
+#              a CI-managed LEZ localnet
+#
+# Out of scope here:
+#
+#   ✗ examples/    — depends on spel-framework + nssa_core, which transitively
+#                    pull in logos-blockchain-pol. That crate's build.rs needs
+#                    the LOGOS_BLOCKCHAIN_CIRCUITS bundle. Built locally via
+#                    cargo, or in CI inside the anchor job (which fetches the
+#                    bundle before invoking lgs).
+#   ✗ methods/guest — risc0 zkVM guest. Built locally via `make build`, or in
+#                     CI inside the anchor job.
+#   ✗ ffi/         — chronicle FFI .so. Same LEZ-deps issue. Built locally via
+#                    `make ffi`; the binary lives at logos-chronicle/vendored/.
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: fmt (chronicle-registry workspace)
+        run: cargo fmt --all -- --check
+      - name: fmt (batch-anchor)
+        working-directory: batch-anchor
+        run: cargo fmt --all -- --check
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            batch-anchor/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: cargo build (chronicle_registry_core)
+        run: cargo build -p chronicle_registry_core
+
+      - name: cargo build (batch-anchor)
+        working-directory: batch-anchor
+        run: cargo build --bin batch-anchor
+
+      - name: cargo test (batch-anchor)
+        working-directory: batch-anchor
+        run: cargo test
+
+  publish:
+    # End-to-end publish flow via nix:
+    #   nix run .#smoke-publish
+    #
+    # Exercises upload → broadcast → status → ledger round-trip through the
+    # chronicle module against a real nwaku container. Does not touch the LEZ
+    # sequencer or the FFI source — the FFI .so is vendored at
+    # logos-chronicle/vendored/, so this stays on stock ubuntu-latest with
+    # nix + docker.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      # OIDC token required by DeterminateSystems/magic-nix-cache-action to
+      # auth to FlakeHub Cache. Without these, the cache silently disables
+      # itself and every nix derivation rebuilds from source — the nim/nwaku
+      # stack alone takes >20 minutes cold, blowing the job budget.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install nix
+        uses: DeterminateSystems/nix-installer-action@main
+        with:
+          extra-conf: |
+            accept-flake-config = true
+
+      - name: nix store cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: cache cargo (for batch-anchor)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            batch-anchor/target
+          key: ${{ runner.os }}-publish-cargo-${{ hashFiles('batch-anchor/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-publish-cargo-
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: build batch-anchor
+        working-directory: batch-anchor
+        # batch-anchor is used here only to wrap `docker compose` for nwaku.
+        run: cargo build --bin batch-anchor
+
+      - name: bring up nwaku
+        working-directory: batch-anchor
+        run: |
+          ./target/debug/batch-anchor node up
+          # Wait for /health to report READY. Pull + start usually <30s on a
+          # warm cache; cold pull of harbor.status.im/wakuorg/nwaku is ~60s.
+          for i in {1..60}; do
+            if curl -sf --max-time 1 http://127.0.0.1:8645/health \
+                | grep -q '"nodeHealth":"READY"'; then
+              echo "nwaku READY (after ${i} probes)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::nwaku failed to come up within 120s" >&2
+          docker ps -a || true
+          docker logs chronicle-nwaku 2>&1 | tail -100 || true
+          exit 1
+
+      - name: nix run .#smoke-publish
+        run: nix run .#smoke-publish
+
+      - name: tear down nwaku
+        if: always()
+        working-directory: batch-anchor
+        run: ./target/debug/batch-anchor node down || true
+
+      - name: collect logs on failure
+        if: failure()
+        run: |
+          mkdir -p /tmp/publish-artifacts
+          cp -r /tmp/chronicle-publish-smoke-* /tmp/publish-artifacts/ 2>/dev/null || true
+          docker logs chronicle-nwaku > /tmp/publish-artifacts/nwaku.log 2>&1 || true
+
+      - name: upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-logs
+          path: /tmp/publish-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  anchor:
+    # End-to-end on-chain anchor flow via nix:
+    #   nix run .#smoke-anchor
+    #
+    # Builds on top of the publish flow by adding:
+    #   - a running LEZ sequencer (lgs localnet start)
+    #   - a deployed chronicle-registry guest program (make build + make deploy)
+    #   - a freshly-minted, faucet-topped signer account
+    #
+    # setup.sh is intentionally bypassed — the workflow owns each step
+    # explicitly so the signer key, program deploy, and wallet are all
+    # CI-scoped and reproducible.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install nix
+        uses: DeterminateSystems/nix-installer-action@main
+        with:
+          extra-conf: |
+            accept-flake-config = true
+
+      - name: nix store cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache logos-scaffold (LEZ + spel sources + target/, circuits)
+        # The big lever: ~10 min of LEZ `cargo build --release sequencer_service`
+        # is what dominates cold runs. lgs writes per-rev directories under
+        # ~/.cache/logos-scaffold/repos/<repo>/<sha>/, so when scaffold.toml
+        # bumps a pin the new SHA gets its own dir and the old cache doesn't
+        # poison it. restore-keys gives partial hits when only one pin moves.
+        #
+        # save-always: by default actions/cache skips the post-save on job
+        # failure. We still want the LEZ build cached so the next run boots
+        # fast even when the anchor flow is being iterated on.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/logos-scaffold
+          key: ${{ runner.os }}-lgs-cache-${{ hashFiles('scaffold.toml') }}
+          restore-keys: ${{ runner.os }}-lgs-cache-
+          save-always: true
+
+      - name: install lgs (logos-scaffold)
+        # Pinned via the same rev scaffold.toml references locally so CI
+        # exercises the same lgs as the dev box.
+        run: cargo install --git https://github.com/logos-co/logos-scaffold logos-scaffold
+
+      - name: fetch logos-blockchain-circuits release
+        # `lgs setup` requires the circuits bundle. We pin v0.4.2 because
+        # that matches the dev box state — bump alongside scaffold.toml's
+        # LEZ pin if/when the upstream sequencer expects a newer circuit
+        # set. ~33MB tarball, untars to ~/.logos-blockchain-circuits/.
+        run: |
+          curl -sL -o /tmp/circuits.tar.gz \
+            https://github.com/logos-blockchain/logos-blockchain-circuits/releases/download/v0.4.2/logos-blockchain-circuits-v0.4.2-linux-x86_64.tar.gz
+          mkdir -p ~/.logos-blockchain-circuits
+          tar -xzf /tmp/circuits.tar.gz -C ~/.logos-blockchain-circuits --strip-components=1
+          rm /tmp/circuits.tar.gz
+          cat ~/.logos-blockchain-circuits/VERSION
+
+      - name: lgs setup + start localnet
+        run: |
+          lgs setup
+          # Backgrounds the sequencer; may return non-zero if its 20s readiness
+          # watchdog fires before we're ready. We poll for the port ourselves.
+          lgs localnet start || true
+          for i in $(seq 1 120); do
+            if (exec 3<>/dev/tcp/127.0.0.1/3040) 2>/dev/null; then
+              exec 3<&-
+              echo "sequencer bound :3040 after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::sequencer never bound 127.0.0.1:3040 within 120s" >&2
+          lgs localnet status || true
+          exit 1
+
+      - name: install risc0 toolchain (rzup → cargo-risczero + r0vm)
+        # `make build` runs `cargo risczero build`, provided by cargo-risczero
+        # which is distributed via rzup. The sequencer also wants r0vm at tx
+        # execution time (warned about in lgs localnet output). rzup install
+        # provisions both.
+        run: |
+          curl -L https://risczero.com/install | bash
+          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+          "$HOME/.risc0/bin/rzup" install
+
+      - name: build + deploy chronicle-registry guest
+        # `make build` runs the risc0 docker image to produce a deterministic
+        # guest ELF. Its hash is the program_id pinned in integration-test.toml,
+        # so deploy is idempotent against the existing pin.
+        run: |
+          make build
+          NSSA_WALLET_HOME_DIR="$PWD/.scaffold/wallet" make deploy
+
+      - name: mint + fund CI signer
+        id: signer
+        run: |
+          export NSSA_WALLET_HOME_DIR="$PWD/.scaffold/wallet"
+          NEW=$(lgs wallet -- account new public 2>&1 \
+                | sed -n 's|.*Public/\([A-Za-z0-9]\{32,\}\).*|\1|p' | head -1)
+          if [[ -z "$NEW" ]]; then
+            echo "::error::could not parse a new Public account_id from lgs output" >&2
+            exit 1
+          fi
+          echo "minted signer: $NEW"
+          lgs wallet topup "$NEW"
+          echo "signer=$NEW" >>"$GITHUB_OUTPUT"
+
+      - name: build batch-anchor
+        working-directory: batch-anchor
+        run: cargo build --bin batch-anchor
+
+      - name: install mold (linker)
+        # chronicle_registry_cli pulls in hundreds of LEZ + risc0 rlibs;
+        # linking in debug mode can OOM ld on the 7 GB runner (SIGBUS).
+        # mold is leaner. apt-get is faster than building it.
+        run: sudo apt-get update && sudo apt-get install -y mold
+
+      - name: build chronicle_registry_cli
+        # batch-anchor's init/watch commands shell out to chronicle_registry_cli
+        # (the spel-generated CLI under examples/) for PDA queries and init.
+        # The circuits release we fetched earlier satisfies the LEZ build.rs.
+        # batch-anchor hardcodes target/debug/chronicle_registry_cli, so we
+        # stay on debug mode and let mold absorb the link-time pressure.
+        env:
+          RUSTFLAGS: -C link-arg=-fuse-ld=mold
+        run: cargo build --bin chronicle_registry_cli
+
+      - name: extract chronicle-registry program_id
+        # program_id is computed from the freshly-built ProgramBinary (.bin).
+        # We use `spel program-id` so we never rely on a hardcoded value.
+        id: program_id
+        run: |
+          PROGRAM_BIN=methods/guest/target/riscv32im-risc0-zkvm-elf/docker/chronicle_registry.bin
+          HEX=$(spel program-id "$PROGRAM_BIN" --format hex)
+          if [[ ! "$HEX" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::could not parse a 64-char hex program_id from spel output" >&2
+            spel program-id "$PROGRAM_BIN" >&2
+            exit 1
+          fi
+          echo "program_id=$HEX"
+          echo "hex=$HEX" >>"$GITHUB_OUTPUT"
+
+      - name: open registry PDA
+        # smoke-anchor's heuristic ("getRegistry ok=true → already initialised")
+        # gives a false positive on a fresh deploy: chronicle's getRegistry
+        # returns ok=true with empty entries even when the PDA doesn't exist
+        # yet. So we explicitly open it here via batch-anchor init.
+        #
+        # batch-anchor reads its config from batch-anchor.toml but supports
+        # per-field env overrides (config.rs::apply_env). Pass the CI-minted
+        # signer and the freshly-extracted program_id that way — the tracked
+        # toml stays untouched. init doesn't care about content_topic.
+        env:
+          NSSA_WALLET_HOME_DIR: ${{ github.workspace }}/.scaffold/wallet
+          BATCH_ANCHOR_REGISTRY__SIGNER_ACCOUNT_ID: ${{ steps.signer.outputs.signer }}
+          BATCH_ANCHOR_REGISTRY__PROGRAM_ID: ${{ steps.program_id.outputs.hex }}
+        working-directory: batch-anchor
+        run: ./target/debug/batch-anchor init
+
+      - name: bring up nwaku
+        working-directory: batch-anchor
+        run: |
+          ./target/debug/batch-anchor node up
+          for i in {1..60}; do
+            if curl -sf --max-time 1 http://127.0.0.1:8645/health \
+                | grep -q '"nodeHealth":"READY"'; then
+              echo "nwaku READY (after ${i} probes)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::nwaku failed to come up within 120s" >&2
+          docker ps -a || true
+          docker logs chronicle-nwaku 2>&1 | tail -100 || true
+          exit 1
+
+      - name: nix run .#smoke-anchor
+        env:
+          # ANCHOR_PROGRAM_ID extracted from the freshly-built guest binary,
+          # so a guest source tweak doesn't leave the smoke pointing at the
+          # stale integration-test.toml pin.
+          # ANCHOR_SIGNER_ACCOUNT minted by the workflow above.
+          # ANCHOR_SEQUENCER_URL defaults to http://127.0.0.1:3040.
+          # ANCHOR_WALLET_HOME defaults to $REPO_ROOT/.scaffold/wallet.
+          ANCHOR_PROGRAM_ID: ${{ steps.program_id.outputs.hex }}
+          ANCHOR_SIGNER_ACCOUNT: ${{ steps.signer.outputs.signer }}
+        run: nix run .#smoke-anchor
+
+      - name: tear down nwaku
+        if: always()
+        working-directory: batch-anchor
+        run: ./target/debug/batch-anchor node down || true
+
+      - name: collect logs on failure
+        if: failure()
+        run: |
+          mkdir -p /tmp/anchor-artifacts
+          cp -r /tmp/chronicle-anchor-smoke-* /tmp/anchor-artifacts/ 2>/dev/null || true
+          docker logs chronicle-nwaku > /tmp/anchor-artifacts/nwaku.log 2>&1 || true
+          lgs localnet status > /tmp/anchor-artifacts/lgs-status.txt 2>&1 || true
+
+      - name: upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anchor-logs
+          path: /tmp/anchor-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
