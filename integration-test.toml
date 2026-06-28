@@ -1,0 +1,16 @@
+# Integration-test contract for Whistleblower.
+#
+# Tests publish to an isolated content topic so they never mix with production
+# Logos Delivery traffic on /chronicle/1/document-index/json.
+#
+# The program_id is extracted dynamically in CI by `spel program-id` — never
+# hardcoded here.
+
+[topic]
+content = "/chronicle/it/document-index/json"
+
+# program_id is populated by the anchor CI job:
+#   HEX=$(spel program-id methods/guest/target/.../chronicle_registry.bin --format hex)
+# Locally you can override with: ANCHOR_PROGRAM_ID=<hex> nix run .#smoke-anchor
+[registry]
+program_id = ""
