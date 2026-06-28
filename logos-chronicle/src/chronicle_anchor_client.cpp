@@ -9,130 +9,114 @@
 #include <dlfcn.h>
 
 namespace {
-constexpr const char* kLibName     = "libchronicle_registry_ffi.so";
-constexpr const char* kEnvOverride = "CHRONICLE_REGISTRY_FFI_PATH";
+const char* kLib    = "libchronicle_registry_ffi.so";
+const char* kEnvKey = "CHRONICLE_FFI_PATH";
 
 QString errJson(const QString& msg) {
-    QJsonObject obj;
-    obj.insert(QStringLiteral("ok"), false);
-    obj.insert(QStringLiteral("error"), msg);
-    return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    return QString::fromUtf8(
+        QJsonDocument(QJsonObject{
+            {QStringLiteral("ok"),    false},
+            {QStringLiteral("error"), msg},
+        }).toJson(QJsonDocument::Compact));
 }
 
-// Marker function whose address dladdr resolves back to chronicle's own
-// plugin .so — lets us find the install dir at runtime so we can look for
-// the FFI sibling there. Used by basecamp-installed chronicle (no env
-// var) to find `libchronicle_registry_ffi.so` next to `chronicle_plugin.so`.
-static void chronicle_anchor_client_marker() {}
+// Marker whose address dladdr maps back to chronicle_plugin.so, letting us
+// locate the install directory to find the FFI sibling .so.
+static void anchor_client_marker() {}
 
-QString pluginOwnDir() {
-    Dl_info info;
-    if (dladdr(reinterpret_cast<void*>(&chronicle_anchor_client_marker), &info)
-            && info.dli_fname != nullptr) {
+QString pluginDir() {
+    Dl_info info{};
+    if (dladdr(reinterpret_cast<void*>(&anchor_client_marker), &info)
+        && info.dli_fname)
         return QFileInfo(QString::fromUtf8(info.dli_fname)).absolutePath();
-    }
     return {};
 }
 } // namespace
 
-ChronicleAnchorClient::ChronicleAnchorClient(QObject* parent) : QObject(parent) {}
+FfiClient::FfiClient(QObject* parent) : QObject(parent) {}
 
-ChronicleAnchorClient::~ChronicleAnchorClient() {
+FfiClient::~FfiClient() {
     if (m_lib.isLoaded()) m_lib.unload();
 }
 
-bool ChronicleAnchorClient::ensureLoaded(QString* error) {
+bool FfiClient::load(QString* err) {
     if (m_loaded) return true;
 
-    // Resolution order:
-    //   1. CHRONICLE_REGISTRY_FFI_PATH env var — explicit override for dev /
-    //      smoke runs that point at a freshly-built .so.
-    //   2. Sibling of chronicle's own plugin .so — basecamp install layout,
-    //      where `lgpm install` puts the FFI next to chronicle_plugin.so.
-    //   3. QLibrary's default search (LD_LIBRARY_PATH, rpath, ldconfig cache).
-    const QString override =
-        QProcessEnvironment::systemEnvironment().value(QLatin1String(kEnvOverride));
-    QString fileName;
-    if (!override.isEmpty()) {
-        fileName = override;
+    // Determine .so path
+    const QString envPath =
+        QProcessEnvironment::systemEnvironment().value(QLatin1String(kEnvKey));
+    QString libPath;
+    if (!envPath.isEmpty()) {
+        libPath = envPath;
     } else {
-        const QString ownDir = pluginOwnDir();
-        if (!ownDir.isEmpty()) {
-            const QString candidate = ownDir + QStringLiteral("/") + QString::fromLatin1(kLibName);
-            if (QFileInfo::exists(candidate)) fileName = candidate;
+        const QString dir = pluginDir();
+        if (!dir.isEmpty()) {
+            const QString candidate = dir + QLatin1Char('/') + QLatin1String(kLib);
+            if (QFileInfo::exists(candidate)) libPath = candidate;
         }
-        if (fileName.isEmpty()) fileName = QString::fromLatin1(kLibName);
+        if (libPath.isEmpty()) libPath = QLatin1String(kLib);
     }
 
-    m_lib.setFileName(fileName);
+    m_lib.setFileName(libPath);
     if (!m_lib.load()) {
-        m_lastError = QStringLiteral("could not load %1: %2")
-                          .arg(fileName, m_lib.errorString());
-        if (error != nullptr) *error = m_lastError;
+        m_lastErr = QStringLiteral("cannot load %1: %2")
+                        .arg(libPath, m_lib.errorString());
+        if (err) *err = m_lastErr;
         return false;
     }
 
-    m_initRegistry = reinterpret_cast<FnCall>(m_lib.resolve("chronicle_registry_init_registry"));
-    m_indexBatch   = reinterpret_cast<FnCall>(m_lib.resolve("chronicle_registry_index_batch"));
-    m_getRegistry  = reinterpret_cast<FnCall>(m_lib.resolve("chronicle_registry_get_registry"));
-    m_freeString   = reinterpret_cast<FnFree>(m_lib.resolve("chronicle_registry_free_string"));
-    m_version      = reinterpret_cast<FnVer> (m_lib.resolve("chronicle_registry_version"));
+    m_init   = reinterpret_cast<CallFn>(m_lib.resolve("chronicle_registry_init_registry"));
+    m_batch  = reinterpret_cast<CallFn>(m_lib.resolve("chronicle_registry_index_batch"));
+    m_getReg = reinterpret_cast<CallFn>(m_lib.resolve("chronicle_registry_get_registry"));
+    m_free   = reinterpret_cast<FreeFn>(m_lib.resolve("chronicle_registry_free_string"));
+    m_ver    = reinterpret_cast<VerFn> (m_lib.resolve("chronicle_registry_version"));
 
-    if (m_initRegistry == nullptr || m_indexBatch == nullptr ||
-        m_getRegistry == nullptr || m_freeString == nullptr ||
-        m_version == nullptr) {
-        m_lastError = QStringLiteral("missing symbols in %1 (rebuild the FFI crate?)")
-                          .arg(m_lib.fileName());
-        if (error != nullptr) *error = m_lastError;
+    if (!m_init || !m_batch || !m_getReg || !m_free || !m_ver) {
+        m_lastErr = QStringLiteral("missing symbols in %1").arg(m_lib.fileName());
+        if (err) *err = m_lastErr;
         m_lib.unload();
         return false;
     }
 
     m_loaded = true;
-    qDebug() << "ChronicleAnchorClient: loaded" << m_lib.fileName();
+    qDebug() << "FfiClient: loaded" << m_lib.fileName();
     return true;
 }
 
-QString ChronicleAnchorClient::version() {
-    if (!ensureLoaded()) return errJson(m_lastError);
-    char* result = m_version();
-    if (result == nullptr) return errJson(QStringLiteral("FFI returned null"));
-    const QString s = QString::fromUtf8(result);
-    m_freeString(result);
+QString FfiClient::ffiVersion() {
+    if (!load()) return errJson(m_lastErr);
+    char* r = m_ver();
+    if (!r) return errJson(QStringLiteral("version() returned null"));
+    const QString s = QString::fromUtf8(r);
+    m_free(r);
     return s;
 }
 
-QString ChronicleAnchorClient::initRegistry(const QString& argsJson) {
-    // ensureLoaded must run BEFORE we evaluate m_initRegistry — function-call
-    // argument evaluation reads the member at call time, and on the first
-    // call the symbols haven't been resolved yet.
-    if (!ensureLoaded()) return errJson(m_lastError);
-    return callJson(m_initRegistry, argsJson, "init_registry");
+QString FfiClient::initRegistry(const QString& argsJson) {
+    if (!load()) return errJson(m_lastErr);
+    return invoke(m_init, argsJson, "init_registry");
 }
 
-QString ChronicleAnchorClient::indexBatch(const QString& argsJson) {
-    if (!ensureLoaded()) return errJson(m_lastError);
-    return callJson(m_indexBatch, argsJson, "index_batch");
+QString FfiClient::indexBatch(const QString& argsJson) {
+    if (!load()) return errJson(m_lastErr);
+    return invoke(m_batch, argsJson, "index_batch");
 }
 
-QString ChronicleAnchorClient::getRegistry(const QString& argsJson) {
-    if (!ensureLoaded()) return errJson(m_lastError);
-    return callJson(m_getRegistry, argsJson, "get_registry");
+QString FfiClient::getRegistry(const QString& argsJson) {
+    if (!load()) return errJson(m_lastErr);
+    return invoke(m_getReg, argsJson, "get_registry");
 }
 
-QString ChronicleAnchorClient::callJson(FnCall fn, const QString& argsJson,
-                                        const char* fnName) {
-    if (fn == nullptr) {
-        return errJson(QStringLiteral("ffi: %1 not resolved")
-                           .arg(QString::fromLatin1(fnName)));
-    }
+QString FfiClient::invoke(CallFn fn, const QString& argsJson, const char* name) {
+    if (!fn)
+        return errJson(QStringLiteral("%1: symbol not resolved")
+                           .arg(QString::fromLatin1(name)));
     const QByteArray args = argsJson.toUtf8();
-    char* result = fn(args.constData());
-    if (result == nullptr) {
-        return errJson(QStringLiteral("ffi: %1 returned null")
-                           .arg(QString::fromLatin1(fnName)));
-    }
-    const QString s = QString::fromUtf8(result);
-    m_freeString(result);
+    char* r = fn(args.constData());
+    if (!r)
+        return errJson(QStringLiteral("%1: returned null")
+                           .arg(QString::fromLatin1(name)));
+    const QString s = QString::fromUtf8(r);
+    m_free(r);
     return s;
 }

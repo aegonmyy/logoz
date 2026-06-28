@@ -1,47 +1,47 @@
 #!/usr/bin/env bash
-# Load values from the repo-root integration-test.toml. Sourced by smoke
-# scripts; not meant to run standalone.
+# Reads integration-test.toml from the repo root and exports:
+#   IT_TOPIC      — waku content topic for smoke-test envelopes
+#   IT_PROGRAM_ID — chronicle-registry program id (may be empty)
 #
-# The IT contract is minimal: tests share production's sequencer, wallet,
-# signer, and nwaku — only the broadcast content topic differs, so test
-# envelopes never reach production consumers.
-#
-# Exports (env vars win as overrides — pre-set values are kept):
-#   IT_TOPIC       — [topic].content
-#   IT_PROGRAM_ID  — [registry].program_id
+# Exported values are never overwritten when already set in the
+# caller's environment — the caller's override takes priority.
+# Source this file; do not execute it directly.
 
 set -u
 
-_it_repo_root() {
+_wb_find_root() {
     local d
     d="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     while [[ "$d" != "/" ]]; do
         [[ -f "$d/integration-test.toml" ]] && { echo "$d"; return 0; }
         d="$(dirname "$d")"
     done
+    echo "load-integration-config.sh: integration-test.toml not found" >&2
     return 1
 }
 
-IT_REPO_ROOT="${IT_REPO_ROOT:-$(_it_repo_root)}"
-IT_CONFIG_PATH="${IT_CONFIG_PATH:-$IT_REPO_ROOT/integration-test.toml}"
+IT_REPO_ROOT="${IT_REPO_ROOT:-$(_wb_find_root)}"
+export IT_REPO_ROOT
 
-if [[ ! -f "$IT_CONFIG_PATH" ]]; then
-    echo "load-integration-config.sh: $IT_CONFIG_PATH not found" >&2
+_wb_toml="${IT_REPO_ROOT}/integration-test.toml"
+if [[ ! -f "$_wb_toml" ]]; then
+    echo "load-integration-config.sh: not found: $_wb_toml" >&2
     return 1 2>/dev/null || exit 1
 fi
 
-_it_vars="$(MAIN="$IT_CONFIG_PATH" python3 - <<'PYEOF'
+_wb_eval="$(TOML="$_wb_toml" python3 - <<'PYEOF'
 import os, shlex, tomllib
-with open(os.environ["MAIN"], "rb") as f:
-    c = tomllib.load(f)
+with open(os.environ["TOML"], "rb") as fh:
+    cfg = tomllib.load(fh)
 def q(v): return shlex.quote(str(v))
-print(f"_IT_TOPIC={q(c['topic']['content'])}")
-print(f"_IT_PROGRAM_ID={q(c['registry']['program_id'])}")
+print("_WB_TOPIC=" + q(cfg.get("topic", {}).get("content", "")))
+print("_WB_PROG="  + q(cfg.get("registry", {}).get("program_id", "")))
 PYEOF
 )"
-eval "$_it_vars"
+eval "$_wb_eval"
 
-export IT_TOPIC="${IT_TOPIC:-$_IT_TOPIC}"
-export IT_PROGRAM_ID="${IT_PROGRAM_ID:-$_IT_PROGRAM_ID}"
+IT_TOPIC="${IT_TOPIC:-$_WB_TOPIC}"
+IT_PROGRAM_ID="${IT_PROGRAM_ID:-$_WB_PROG}"
+export IT_TOPIC IT_PROGRAM_ID
 
-unset _IT_TOPIC _IT_PROGRAM_ID _it_vars _it_repo_root
+unset _wb_toml _wb_eval _WB_TOPIC _WB_PROG _wb_find_root

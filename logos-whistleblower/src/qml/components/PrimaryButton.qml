@@ -1,30 +1,30 @@
 import QtQuick
 import QtQuick.Controls
 
-// Solid accent-coloured action button. One per logical action group max.
+// Teal-filled primary action button.
 Button {
     id: root
-    property var theme
+    property var t
 
-    implicitHeight: 34
-    leftPadding: theme.s4
-    rightPadding: theme.s4
+    implicitHeight:  34
+    leftPadding:     t.sp5
+    rightPadding:    t.sp5
 
     contentItem: Text {
-        text: root.text
-        color: root.enabled ? "#ffffff" : theme.fg4
-        font.pixelSize: theme.fpBody
-        font.bold: true
+        text:               root.text
+        color:              root.enabled ? t.canvas : t.ink4
+        font.pixelSize:     t.fsMd
+        font.bold:          true
         horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
+        verticalAlignment:   Text.AlignVCenter
     }
 
     background: Rectangle {
-        radius: theme.rSm
-        color: !root.enabled ? Qt.darker(theme.accent, 2.0)
-            : root.down       ? Qt.darker(theme.accent, 1.2)
-            : root.hovered    ? theme.accentHover
-            :                   theme.accent
-        Behavior on color { ColorAnimation { duration: theme.durFast } }
+        radius: t.rXs
+        color: !root.enabled ? Qt.rgba(t.teal.r, t.teal.g, t.teal.b, 0.25)
+             : root.down     ? t.tealMuted
+             : root.hovered  ? t.tealHover
+             :                 t.teal
+        Behavior on color { ColorAnimation { duration: t.quick } }
     }
 }

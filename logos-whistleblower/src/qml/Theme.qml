@@ -1,57 +1,57 @@
 import QtQuick
 
-// Design tokens. Instantiated once at the root of Main.qml as `Theme { id: theme }`
-// and passed down to components via a `theme` property — same pattern dist-x uses.
+// Design tokens — dark navy palette with teal accent.
+// Used as Theme { id: t } and referenced through that id.
 QtObject {
-    // ── Surfaces (GitHub-dark grade) ─────────────────────────────────────────
-    readonly property color bg:            "#0d1117"
-    readonly property color surface:       "#161b22"
-    readonly property color surfaceSubtle: "#1c2128"
-    readonly property color surfaceRaised: "#21262d"
+    // ── Canvas ───────────────────────────────────────────────────────────────
+    readonly property color canvas:      "#09090f"
+    readonly property color panel:       "#111120"
+    readonly property color panelMid:    "#18182a"
+    readonly property color panelHigh:   "#20203a"
 
     // ── Borders ──────────────────────────────────────────────────────────────
-    readonly property color line:          "#30363d"
-    readonly property color lineStrong:    "#444c56"
+    readonly property color rim:         "#2a2a4a"
+    readonly property color rimStrong:   "#3a3a5c"
 
     // ── Text ─────────────────────────────────────────────────────────────────
-    readonly property color fg:            "#e6edf3"
-    readonly property color fg2:           "#c9d1d9"
-    readonly property color fg3:           "#8b949e"
-    readonly property color fg4:           "#6e7681"
+    readonly property color ink:         "#e2e8f0"
+    readonly property color ink2:        "#b0bec5"
+    readonly property color ink3:        "#78909c"
+    readonly property color ink4:        "#546e7a"
 
-    // ── Accent (primary actions / focus rings) ───────────────────────────────
-    readonly property color accent:        "#4493f8"
-    readonly property color accentHover:   "#58a6ff"
-    readonly property color accentMuted:   "#1f6feb"
+    // ── Accent (teal) ────────────────────────────────────────────────────────
+    readonly property color teal:        "#14b8a6"
+    readonly property color tealHover:   "#2dd4bf"
+    readonly property color tealMuted:   "#0d9488"
+    readonly property color tealDim:     "#134e4a"
 
-    // ── Status tones ─────────────────────────────────────────────────────────
-    readonly property color success:       "#56d364"
-    readonly property color warning:       "#d29922"
-    readonly property color danger:        "#f85149"
-    readonly property color muted:         "#8b949e"
+    // ── Status ───────────────────────────────────────────────────────────────
+    readonly property color ok:          "#4ade80"
+    readonly property color warn:        "#facc15"
+    readonly property color err:         "#f87171"
+    readonly property color neutral:     "#78909c"
 
     // ── Spacing scale ────────────────────────────────────────────────────────
-    readonly property int s1: 4
-    readonly property int s2: 8
-    readonly property int s3: 12
-    readonly property int s4: 16
-    readonly property int s5: 24
-    readonly property int s6: 32
+    readonly property int sp1: 4
+    readonly property int sp2: 8
+    readonly property int sp3: 12
+    readonly property int sp4: 16
+    readonly property int sp5: 24
+    readonly property int sp6: 32
 
-    // ── Radii ────────────────────────────────────────────────────────────────
-    readonly property int rSm: 4
-    readonly property int rMd: 6
-    readonly property int rLg: 10
+    // ── Corner radii ─────────────────────────────────────────────────────────
+    readonly property int rXs: 3
+    readonly property int rSm: 6
+    readonly property int rMd: 10
 
     // ── Font sizes ───────────────────────────────────────────────────────────
-    readonly property int fpHero:  22
-    readonly property int fpLg:    16
-    readonly property int fpMd:    14
-    readonly property int fpBody:  13
-    readonly property int fpSm:    12
-    readonly property int fpLabel: 11
+    readonly property int fsTitle: 20
+    readonly property int fsLg:    15
+    readonly property int fsMd:    13
+    readonly property int fsSm:    11
+    readonly property int fsXs:    10
 
-    // ── Durations ────────────────────────────────────────────────────────────
-    readonly property int durFast: 120
-    readonly property int durBase: 220
+    // ── Animation durations ──────────────────────────────────────────────────
+    readonly property int quick: 100
+    readonly property int smooth: 200
 }

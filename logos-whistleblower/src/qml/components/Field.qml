@@ -2,50 +2,48 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Labeled text input with uppercase mono label and accent focus ring.
+// Labeled text input with teal focus ring.
 ColumnLayout {
     id: root
-    property var theme
-    property string label: ""
-    property alias text: input.text
-    property alias placeholderText: input.placeholderText
-    property string errorText: ""
 
-    spacing: theme.s1
+    property var    t
+    property string label:           ""
+    property alias  text:            tf.text
+    property alias  placeholderText: tf.placeholderText
+    property string hint:            ""
+
+    spacing: t.sp1
 
     Text {
-        text: root.label.toUpperCase()
-        color: theme.fg3
-        font.pixelSize: theme.fpLabel
-        font.letterSpacing: 0.8
-        font.bold: true
+        text:            root.label.toUpperCase()
+        color:           t.ink3
+        font.pixelSize:  t.fsXs
+        font.letterSpacing: 1.0
+        font.bold:       true
     }
 
     TextField {
-        id: input
+        id: tf
         Layout.fillWidth: true
-        color: theme.fg
-        placeholderTextColor: theme.fg4
-        selectionColor: theme.accentMuted
-        selectedTextColor: theme.fg
-        font.pixelSize: theme.fpBody
-        padding: theme.s2
+        color:                 t.ink
+        placeholderTextColor:  t.ink4
+        selectionColor:        t.tealMuted
+        selectedTextColor:     t.ink
+        font.pixelSize:        t.fsMd
 
         background: Rectangle {
-            color: theme.surface
-            radius: theme.rSm
-            border.width: 1
-            border.color: input.activeFocus       ? theme.accent
-                       : root.errorText.length > 0 ? theme.danger
-                                                   : theme.line
-            Behavior on border.color { ColorAnimation { duration: theme.durFast } }
+            color:         t.panelMid
+            radius:        t.rXs
+            border.width:  1
+            border.color:  tf.activeFocus ? t.teal : t.rim
+            Behavior on border.color { ColorAnimation { duration: t.quick } }
         }
     }
 
     Text {
-        visible: root.errorText.length > 0
-        text: root.errorText
-        color: theme.danger
-        font.pixelSize: theme.fpLabel
+        visible:        root.hint.length > 0
+        text:           root.hint
+        color:          t.ink3
+        font.pixelSize: t.fsXs
     }
 }

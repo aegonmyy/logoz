@@ -5,33 +5,30 @@
 #include <QString>
 #include <QStringList>
 
-// Settings for the optional on-chain anchor pipeline. Persisted to a JSON file
-// under QStandardPaths::AppDataLocation. The actual on-chain implementation is
-// not yet wired (phase 1) — this struct + persistence exists so the UI can
-// collect and store the values via setAnchorConfigJson before anchor methods
-// become functional.
+// On-chain anchor settings. Persisted as JSON under AppDataLocation.
+// programId and signerAccountId have no defaults — the user supplies them
+// via setAnchorConfigJson(); missing fields surface through missingFields().
 struct AnchorConfig {
-    QString programId;        // 32-byte hex from `spel deploy`. No static default.
-    QString sequencerUrl;     // Defaults to local sequencer http://127.0.0.1:3040.
-    QString walletHome;       // Path to spel-framework wallet. Defaults to ../.scaffold/wallet.
-    QString signerAccountId;  // Defaults to chronicle-registry dev signer.
+    QString programId;
+    QString sequencerUrl;
+    QString walletHome;
+    QString signerAccountId;
 
-    static AnchorConfig withDevDefaults();
+    static AnchorConfig devDefaults();
 
-    QStringList missingFields() const;  // empty when fully configured
-    bool isConfigured() const { return missingFields().isEmpty(); }
+    QStringList missingFields() const;
+    bool        isReady() const { return missingFields().isEmpty(); }
 
-    QJsonObject toJson() const;
+    QJsonObject         toJson()            const;
     static AnchorConfig fromJson(const QJsonObject& obj);
 };
 
-// File-based persistence. Path is derived from AppDataLocation; load returns
-// withDevDefaults() if the file is missing.
-class AnchorConfigStore {
+// JSON file persistence under AppDataLocation/chronicle/
+class AnchorStore {
 public:
-    static QString configPath();
+    static QString      path();
     static AnchorConfig load();
-    static bool save(const AnchorConfig& cfg, QString* error = nullptr);
+    static bool         save(const AnchorConfig& cfg, QString* err = nullptr);
 };
 
 #endif // CHRONICLE_ANCHOR_CONFIG_H
