@@ -5,54 +5,44 @@
 #include <QObject>
 #include <QString>
 
-// Loads chronicle_registry_ffi (built from the repo-root `ffi/`) at runtime
-// via QLibrary and exposes its five C entry points as typed methods. All calls
-// are JSON-in / JSON-out and blocking; the FFI's tokio runtime handles its own
-// async beneath us.
+// Lazy-loads libchronicle_registry_ffi.so and exposes its C entry-points as
+// typed Qt methods. All calls are JSON-in / JSON-out and blocking; the Rust
+// side manages its own tokio runtime.
 //
-// Library path resolution, first to match wins:
-//   1. CHRONICLE_REGISTRY_FFI_PATH env var — absolute path; useful for dev /
-//      logoscore smoke runs that point at a custom-built .so.
-//   2. The bare name "libchronicle_registry_ffi.so" — relies on QLibrary's
-//      standard search (LD_LIBRARY_PATH, plugin's own dir if rpath is set).
-//
-// Loading is lazy: the first anchor method call triggers `ensureLoaded`. If
-// the library isn't present, anchor calls fail with a clear error rather than
-// crashing chronicle on startup.
-class ChronicleAnchorClient : public QObject {
+// Library search order:
+//   1. CHRONICLE_FFI_PATH env var (absolute path override for dev/CI)
+//   2. Sibling of chronicle_plugin.so in the Basecamp install layout
+//   3. QLibrary default search (LD_LIBRARY_PATH, rpath, ldconfig)
+class FfiClient : public QObject {
     Q_OBJECT
 public:
-    explicit ChronicleAnchorClient(QObject* parent = nullptr);
-    ~ChronicleAnchorClient() override;
+    explicit FfiClient(QObject* parent = nullptr);
+    ~FfiClient() override;
 
-    bool    ensureLoaded(QString* error = nullptr);
-    QString lastError() const { return m_lastError; }
-    QString libPath() const { return m_lib.fileName(); }
+    bool    load(QString* err = nullptr);
+    bool    isLoaded() const { return m_loaded; }
+    QString lastError() const { return m_lastErr; }
 
-    // Each method takes the FFI's JSON args (object with at least
-    // program_id_hex / wallet_path / sequencer_url plus method-specific fields)
-    // and returns the FFI's owned heap-allocated JSON string. This class
-    // handles `chronicle_registry_free_string` internally.
-    QString version();
+    QString ffiVersion();
     QString initRegistry(const QString& argsJson);
     QString indexBatch(const QString& argsJson);
     QString getRegistry(const QString& argsJson);
 
 private:
-    using FnCall = char* (*)(const char*);
-    using FnFree = void  (*)(char*);
-    using FnVer  = char* (*)();
+    using CallFn = char* (*)(const char*);
+    using FreeFn = void  (*)(char*);
+    using VerFn  = char* (*)();
 
-    QString callJson(FnCall fn, const QString& argsJson, const char* fnName);
+    QString invoke(CallFn fn, const QString& argsJson, const char* name);
 
     QLibrary m_lib;
-    bool     m_loaded       = false;
-    QString  m_lastError;
-    FnCall   m_initRegistry = nullptr;
-    FnCall   m_indexBatch   = nullptr;
-    FnCall   m_getRegistry  = nullptr;
-    FnFree   m_freeString   = nullptr;
-    FnVer    m_version      = nullptr;
+    bool     m_loaded    = false;
+    QString  m_lastErr;
+    CallFn   m_init      = nullptr;
+    CallFn   m_batch     = nullptr;
+    CallFn   m_getReg    = nullptr;
+    FreeFn   m_free      = nullptr;
+    VerFn    m_ver       = nullptr;
 };
 
 #endif // CHRONICLE_ANCHOR_CLIENT_H

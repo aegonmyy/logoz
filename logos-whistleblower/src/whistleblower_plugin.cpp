@@ -16,201 +16,292 @@
 #include "token_manager.h"
 
 namespace {
-constexpr int POLL_INTERVAL_MS = 1000;
-constexpr int MAX_BROADCASTER_RETRIES = 5;
-constexpr int BROADCASTER_RETRY_BASE_MS = 2000;  // 2s, 4s, 8s, 16s, 30s (capped)
-constexpr int BROADCASTER_RETRY_CAP_MS = 30000;
 
-QString compactJson(const QJsonObject& obj) {
+// Delivery bring-up: retry up to 6 times with capped exponential backoff.
+constexpr int kMaxDeliveryTries = 6;
+constexpr int kDeliveryBaseMs   = 2500;
+constexpr int kDeliveryCapMs    = 45000;
+
+// Job status polling interval.
+constexpr int kPollMs = 1200;
+
+// Terminal job phases that stop polling.
+constexpr auto kPhaseDone  = "done";
+constexpr auto kPhaseError = "error";
+
+QJsonObject parse(const QString& json) {
+    return QJsonDocument::fromJson(json.toUtf8()).object();
+}
+
+QString compact(const QJsonObject& obj) {
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
-QJsonObject parseObject(const QString& json) {
-    return QJsonDocument::fromJson(json.toUtf8()).object();
+QString compactArr(const QJsonArray& arr) {
+    return QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
 }
-}  // namespace
+
+QString formatErr(const QJsonObject& obj) {
+    const QString code  = obj.value(QStringLiteral("code")).toString();
+    const QString error = obj.value(QStringLiteral("error")).toString();
+    return code.isEmpty() ? error : QStringLiteral("%1: %2").arg(code, error);
+}
+
+} // namespace
 
 WhistleblowerPlugin::WhistleblowerPlugin(QObject* parent)
     : WhistleblowerSimpleSource(parent)
 {
-    setStatus(QStringLiteral("idle"));
-    setBusy(false);
-    setDeliveryReady(false);
+    setPhase(QStringLiteral("idle"));
+    setWorking(false);
+    setNetworkReady(false);
+    setAnchorsMapJson(QStringLiteral("{}"));
 }
 
 WhistleblowerPlugin::~WhistleblowerPlugin() {
-    if (m_pollTimer != nullptr) {
-        m_pollTimer->stop();
-    }
-    delete m_chronicleClient;
+    if (m_pollTimer)    m_pollTimer->stop();
+    if (m_deliveryRetry) m_deliveryRetry->stop();
+    delete m_client;
 }
 
 void WhistleblowerPlugin::initLogos(LogosAPI* api) {
-    m_logosAPI = api;
+    m_api = api;
     setBackend(this);
 
     m_pollTimer = new QTimer(this);
-    m_pollTimer->setInterval(POLL_INTERVAL_MS);
-    connect(m_pollTimer, &QTimer::timeout,
-            this, &WhistleblowerPlugin::pollPublishStatus);
+    m_pollTimer->setInterval(kPollMs);
+    connect(m_pollTimer, &QTimer::timeout, this, &WhistleblowerPlugin::tickJobPoll);
 
-    m_startBroadcasterRetryTimer = new QTimer(this);
-    m_startBroadcasterRetryTimer->setSingleShot(true);
-    connect(m_startBroadcasterRetryTimer, &QTimer::timeout,
-            this, &WhistleblowerPlugin::startBroadcaster);
+    m_deliveryRetry = new QTimer(this);
+    m_deliveryRetry->setSingleShot(true);
+    connect(m_deliveryRetry, &QTimer::timeout, this, &WhistleblowerPlugin::connectDelivery);
 
-    ensureChronicleClient();
+    ensureClient();
 
-    // Show local publish history immediately — chronicle's ledger read does
-    // not depend on storage or delivery being initialised.
-    QTimer::singleShot(0, this, [this]() { refreshPublishedList(); });
+    // Hydrate UI from persisted ledger without waiting for network.
+    QTimer::singleShot(0, this, [this]() { reloadHistory(); });
+    QTimer::singleShot(0, this, [this]() { reloadAnchorCaps(); });
+    QTimer::singleShot(0, this, [this]() { reloadAnchors(); });
 
-    setAnchorsJson(QStringLiteral("{}"));
-    // Anchor capabilities + saved config + persisted anchor map — file-only
-    // reads, no on-chain calls.
-    QTimer::singleShot(0, this, [this]() { refreshAnchorCapabilities(); });
-    QTimer::singleShot(0, this, [this]() { refreshAnchors(); });
-
-    // Pre-warm Chronicle's delivery+storage services. First attempt usually
-    // races with delivery_module's slow Waku-node bring-up; startBroadcaster
-    // self-retries with backoff if it fails.
-    QTimer::singleShot(0, this, [this]() { startBroadcaster(); });
-
-    qDebug() << "WhistleblowerPlugin: initialized";
+    // Kick off delivery bring-up; it self-retries via scheduleDeliveryRetry.
+    QTimer::singleShot(0, this, [this]() { connectDelivery(); });
 }
 
-void WhistleblowerPlugin::ensureChronicleClient() {
-    if (m_chronicleClient != nullptr || m_logosAPI == nullptr) {
-        return;
-    }
-    m_chronicleClient = new LogosAPIClient(
+void WhistleblowerPlugin::ensureClient() {
+    if (m_client || !m_api) return;
+    m_client = new LogosAPIClient(
         QStringLiteral("chronicle"),
         QStringLiteral("whistleblower"),
-        m_logosAPI->getTokenManager(),
+        m_api->getTokenManager(),
         this);
 }
 
-QString WhistleblowerPlugin::callChronicle(const QString& method,
-                                           const QVariantList& args) {
-    ensureChronicleClient();
-    if (m_chronicleClient == nullptr) {
-        return compactJson({{QStringLiteral("ok"), false},
-                            {QStringLiteral("code"), QStringLiteral("CLIENT_UNAVAILABLE")},
-                            {QStringLiteral("error"), QStringLiteral("chronicle client not ready")}});
-    }
+QString WhistleblowerPlugin::invokeChronicle(const QString& method,
+                                              const QVariantList& args)
+{
+    ensureClient();
+    if (!m_client)
+        return compact({
+            {QStringLiteral("ok"),    false},
+            {QStringLiteral("code"),  QStringLiteral("CLIENT_UNAVAILABLE")},
+            {QStringLiteral("error"), QStringLiteral("chronicle client not ready")},
+        });
 
-    QVariant response;
-    if (args.isEmpty()) {
-        response = m_chronicleClient->invokeRemoteMethod(
-            QStringLiteral("chronicle"), method);
-    } else if (args.size() == 1) {
-        response = m_chronicleClient->invokeRemoteMethod(
-            QStringLiteral("chronicle"), method, args[0]);
-    } else if (args.size() == 2) {
-        response = m_chronicleClient->invokeRemoteMethod(
-            QStringLiteral("chronicle"), method, args[0], args[1]);
-    } else if (args.size() == 3) {
-        response = m_chronicleClient->invokeRemoteMethod(
-            QStringLiteral("chronicle"), method, args[0], args[1], args[2]);
-    } else if (args.size() == 5) {
-        response = m_chronicleClient->invokeRemoteMethod(
-            QStringLiteral("chronicle"), method,
-            args[0], args[1], args[2], args[3], args[4]);
-    } else {
-        qWarning() << "WhistleblowerPlugin: unsupported arg count for"
-                   << method << args.size();
-        return {};
+    QVariant result;
+    switch (args.size()) {
+        case 0: result = m_client->invokeRemoteMethod(QStringLiteral("chronicle"), method); break;
+        case 1: result = m_client->invokeRemoteMethod(QStringLiteral("chronicle"), method, args[0]); break;
+        case 2: result = m_client->invokeRemoteMethod(QStringLiteral("chronicle"), method, args[0], args[1]); break;
+        case 3: result = m_client->invokeRemoteMethod(QStringLiteral("chronicle"), method, args[0], args[1], args[2]); break;
+        case 5: result = m_client->invokeRemoteMethod(QStringLiteral("chronicle"), method,
+                    args[0], args[1], args[2], args[3], args[4]); break;
+        default:
+            qWarning() << "WhistleblowerPlugin: unsupported arg count" << args.size()
+                       << "for method" << method;
+            return {};
     }
-    return response.toString();
+    return result.toString();
 }
 
-void WhistleblowerPlugin::startBroadcaster() {
-    const QString resp = callChronicle(QStringLiteral("startBroadcasterJson"));
-    const QJsonObject obj = parseObject(resp);
-    const bool ok = obj.value(QStringLiteral("ok")).toBool();
-    setDeliveryReady(ok);
+// ── Delivery bring-up ────────────────────────────────────────────────────────
+
+void WhistleblowerPlugin::connectDelivery() {
+    const QJsonObject resp = parse(invokeChronicle(QStringLiteral("startBroadcasterJson")));
+    const bool ok = resp.value(QStringLiteral("ok")).toBool();
+    setNetworkReady(ok);
 
     if (ok) {
-        m_startBroadcasterAttempts = 0;
-        qDebug() << "WhistleblowerPlugin: chronicle broadcaster ready";
-        // Refresh history once services come up — in case the ledger was
-        // updated externally while we were waiting.
-        refreshPublishedList();
+        m_deliveryTries = 0;
+        reloadHistory();
         return;
     }
 
-    const QString err = obj.value(QStringLiteral("error")).toString();
-    m_startBroadcasterAttempts++;
-    qWarning() << "WhistleblowerPlugin: startBroadcaster attempt"
-               << m_startBroadcasterAttempts << "failed:" << err;
-
-    if (m_startBroadcasterAttempts < MAX_BROADCASTER_RETRIES) {
-        const int delay = std::min(
-            BROADCASTER_RETRY_BASE_MS * (1 << (m_startBroadcasterAttempts - 1)),
-            BROADCASTER_RETRY_CAP_MS);
-        qDebug() << "WhistleblowerPlugin: retrying startBroadcaster in"
-                 << delay << "ms";
-        m_startBroadcasterRetryTimer->start(delay);
-    } else {
-        qWarning() << "WhistleblowerPlugin: giving up on startBroadcaster after"
-                   << m_startBroadcasterAttempts << "attempts";
-        setLastError(QStringLiteral("Could not initialise chronicle services: %1")
-                         .arg(err));
-    }
+    ++m_deliveryTries;
+    qWarning() << "WhistleblowerPlugin: connectDelivery attempt"
+               << m_deliveryTries << "failed:" << formatErr(resp);
+    if (m_deliveryTries < kMaxDeliveryTries) scheduleDeliveryRetry();
+    else setLastErr(QStringLiteral("Delivery unavailable: ") + formatErr(resp));
 }
 
-void WhistleblowerPlugin::refreshPublishedList() {
-    const QString resp = callChronicle(QStringLiteral("listPublishedJson"));
-    const QJsonObject obj = parseObject(resp);
-    if (!obj.value(QStringLiteral("ok")).toBool()) {
+void WhistleblowerPlugin::scheduleDeliveryRetry() {
+    const int delay = std::min(kDeliveryBaseMs << (m_deliveryTries - 1), kDeliveryCapMs);
+    m_deliveryRetry->start(delay);
+}
+
+// ── Submit (upload + broadcast) ──────────────────────────────────────────────
+
+void WhistleblowerPlugin::submitDocument(QString path, QString contentType,
+                                          QString title, QString description,
+                                          QString tagsCsv)
+{
+    if (working()) {
+        setLastErr(QStringLiteral("a publish is already in progress"));
         return;
     }
-    const QJsonArray records = obj.value(QStringLiteral("records")).toArray();
-    setPublishedRecordsJson(QString::fromUtf8(
-        QJsonDocument(records).toJson(QJsonDocument::Compact)));
+
+    // Auto-detect MIME type when not supplied.
+    if (contentType.trimmed().isEmpty()) {
+        QMimeDatabase db;
+        const QMimeType mt = db.mimeTypeForFile(QFileInfo(path), QMimeDatabase::MatchDefault);
+        contentType = mt.isValid() ? mt.name()
+                                   : QStringLiteral("application/octet-stream");
+    }
+
+    QJsonArray tagsArr;
+    for (const QString& raw : tagsCsv.split(u',', Qt::SkipEmptyParts)) {
+        const QString t = raw.trimmed();
+        if (!t.isEmpty()) tagsArr.append(t);
+    }
+
+    const QString reqJson = compact({
+        {QStringLiteral("path"),         path},
+        {QStringLiteral("content_type"), contentType},
+        {QStringLiteral("title"),        title},
+        {QStringLiteral("description"),  description},
+        {QStringLiteral("tags"),         tagsArr},
+        {QStringLiteral("broadcast"),    true},
+    });
+
+    clearJobState();
+    setWorking(true);
+    setPhase(QStringLiteral("queued"));
+
+    handleJobResponse(invokeChronicle(QStringLiteral("publishFileJson"),
+                                      QVariantList{reqJson}));
 }
 
-void WhistleblowerPlugin::refreshAnchorCapabilities() {
-    setAnchorCapabilitiesJson(callChronicle(QStringLiteral("anchorCapabilitiesJson")));
-    setAnchorConfigJson(callChronicle(QStringLiteral("getAnchorConfigJson")));
-}
-
-void WhistleblowerPlugin::setAnchorConfig(QString cfgJson) {
-    const QString resp = callChronicle(
-        QStringLiteral("setAnchorConfigJson"),
-        QVariantList{cfgJson});
-    const QJsonObject obj = parseObject(resp);
-    if (!obj.value(QStringLiteral("ok")).toBool()) {
-        const QString code  = obj.value(QStringLiteral("code")).toString();
-        const QString error = obj.value(QStringLiteral("error")).toString();
-        setLastError(code.isEmpty() ? error
-                                    : QStringLiteral("%1: %2").arg(code, error));
+void WhistleblowerPlugin::handleJobResponse(const QString& resp) {
+    const QJsonObject obj = parse(resp);
+    if (!obj.value(QStringLiteral("queued")).toBool()) {
+        setWorking(false);
+        setPhase(QStringLiteral("error"));
+        setLastErr(formatErr(obj));
         return;
     }
-    setLastError(QString());
-    refreshAnchorCapabilities();
+    setActiveJobId(obj.value(QStringLiteral("publish_id")).toString());
+    if (m_pollTimer && !m_pollTimer->isActive()) m_pollTimer->start();
 }
 
-void WhistleblowerPlugin::refreshAnchors() {
-    // Chronicle is authoritative — read its persisted map and mirror to the
-    // QML-facing property. Keyed by CID (matches the on-chain identifier).
-    const QString resp = callChronicle(QStringLiteral("listAnchorsJson"));
-    const QJsonObject obj = parseObject(resp);
+void WhistleblowerPlugin::tickJobPoll() {
+    const QString jobId = activeJobId();
+    if (jobId.isEmpty()) { m_pollTimer->stop(); return; }
+
+    const QJsonObject obj = parse(
+        invokeChronicle(QStringLiteral("publishStatusJson"), QVariantList{jobId}));
+
+    const QString newPhase = obj.value(QStringLiteral("status")).toString();
+    if (!newPhase.isEmpty()) setPhase(newPhase);
+
+    const QString newCid = obj.value(QStringLiteral("cid")).toString();
+    if (!newCid.isEmpty() && newCid != contentId()) setContentId(newCid);
+
+    const QString newHash = obj.value(QStringLiteral("metadata_hash")).toString();
+    if (!newHash.isEmpty() && newHash != docHash()) setDocHash(newHash);
+
+    const bool terminal = (newPhase == QLatin1String(kPhaseDone)
+                           || newPhase == QLatin1String(kPhaseError));
+    if (terminal) {
+        m_pollTimer->stop();
+        setWorking(false);
+        if (newPhase == QLatin1String(kPhaseError))
+            setLastErr(formatErr(obj));
+        reloadHistory();
+    }
+}
+
+void WhistleblowerPlugin::clearJobState() {
+    setActiveJobId(QString());
+    setContentId(QString());
+    setDocHash(QString());
+    setLastErr(QString());
+}
+
+// ── History ──────────────────────────────────────────────────────────────────
+
+void WhistleblowerPlugin::reloadHistory() {
+    const QJsonObject obj = parse(invokeChronicle(QStringLiteral("listPublishedJson")));
     if (!obj.value(QStringLiteral("ok")).toBool()) return;
-    const QJsonObject anchors = obj.value(QStringLiteral("anchors")).toObject();
-    setAnchorsJson(QString::fromUtf8(
-        QJsonDocument(anchors).toJson(QJsonDocument::Compact)));
+    const QJsonArray items = obj.value(QStringLiteral("items")).toArray();
+    setHistoryJson(compactArr(items));
 }
 
-void WhistleblowerPlugin::anchorPublished(QString publishId) {
-    // Look up the publish record from the cached list so we can build the
-    // (cid, metadata_hash, timestamp) tuple. Parsing the JSON each click is
-    // fine for phase 1 — list size is small.
-    const QJsonDocument recordsDoc =
-        QJsonDocument::fromJson(publishedRecordsJson().toUtf8());
+QString WhistleblowerPlugin::fetchHistoryJson() {
+    return invokeChronicle(QStringLiteral("listPublishedJson"));
+}
+
+void WhistleblowerPlugin::discardHistory() {
+    if (working()) {
+        setLastErr(QStringLiteral("cannot clear while a publish is in progress"));
+        return;
+    }
+    const QJsonObject obj = parse(invokeChronicle(QStringLiteral("clearPublishedJson")));
+    if (!obj.value(QStringLiteral("ok")).toBool()) {
+        setLastErr(formatErr(obj));
+        return;
+    }
+    setPhase(QStringLiteral("idle"));
+    setContentId(QString());
+    setDocHash(QString());
+    setActiveJobId(QString());
+    setLastErr(QString());
+    // Cleared publishes leave orphaned anchor entries with no UI row — wipe them.
+    invokeChronicle(QStringLiteral("clearAnchorsJson"));
+    reloadAnchors();
+    reloadHistory();
+}
+
+// ── Anchor ───────────────────────────────────────────────────────────────────
+
+void WhistleblowerPlugin::reloadAnchorCaps() {
+    setAnchorCapsJson(invokeChronicle(QStringLiteral("anchorCapabilitiesJson")));
+    setAnchorCfgJson(invokeChronicle(QStringLiteral("getAnchorConfigJson")));
+}
+
+void WhistleblowerPlugin::applyAnchorConfig(QString cfgJson) {
+    const QJsonObject obj = parse(
+        invokeChronicle(QStringLiteral("setAnchorConfigJson"), QVariantList{cfgJson}));
+    if (!obj.value(QStringLiteral("ok")).toBool()) {
+        setLastErr(formatErr(obj));
+        return;
+    }
+    setLastErr(QString());
+    reloadAnchorCaps();
+}
+
+void WhistleblowerPlugin::reloadAnchors() {
+    const QJsonObject obj = parse(invokeChronicle(QStringLiteral("listAnchorsJson")));
+    if (!obj.value(QStringLiteral("ok")).toBool()) return;
+    const QJsonObject map = obj.value(QStringLiteral("anchors")).toObject();
+    setAnchorsMapJson(QString::fromUtf8(
+        QJsonDocument(map).toJson(QJsonDocument::Compact)));
+}
+
+void WhistleblowerPlugin::anchorJob(QString publishId) {
+    // Look up CID + metadata_hash from the local history cache.
+    const QJsonDocument histDoc = QJsonDocument::fromJson(historyJson().toUtf8());
     QJsonObject record;
-    if (recordsDoc.isArray()) {
-        for (const QJsonValue& v : recordsDoc.array()) {
+    if (histDoc.isArray()) {
+        for (const QJsonValue& v : histDoc.array()) {
             const QJsonObject candidate = v.toObject();
             if (candidate.value(QStringLiteral("publish_id")).toString() == publishId) {
                 record = candidate;
@@ -219,194 +310,23 @@ void WhistleblowerPlugin::anchorPublished(QString publishId) {
         }
     }
     if (record.isEmpty()) {
-        setLastError(QStringLiteral("publish record not found: %1").arg(publishId));
+        setLastErr(QStringLiteral("publish record not found: %1").arg(publishId));
         return;
     }
 
-    const QString cid   = record.value(QStringLiteral("cid")).toString();
-    const QString mhash = record.value(QStringLiteral("metadata_hash")).toString();
-    // Per LP-17, `anchor_timestamp` is "when this was anchored", not when the
-    // document was published. Stamp it at click time, in seconds.
-    const qint64 tsSec = QDateTime::currentSecsSinceEpoch();
+    const QString reqJson = compact({
+        {QStringLiteral("publish_id"),    publishId},
+        {QStringLiteral("cid"),           record.value(QStringLiteral("cid")).toString()},
+        {QStringLiteral("metadata_hash"), record.value(QStringLiteral("metadata_hash")).toString()},
+        {QStringLiteral("timestamp"),     QDateTime::currentSecsSinceEpoch()},
+    });
+    const QJsonObject resp = parse(
+        invokeChronicle(QStringLiteral("anchorBatchJson"), QVariantList{reqJson}));
 
-    QJsonObject entry;
-    entry.insert(QStringLiteral("publish_id"), publishId);
-    entry.insert(QStringLiteral("cid"), cid);
-    entry.insert(QStringLiteral("metadata_hash"), mhash);
-    entry.insert(QStringLiteral("timestamp"), tsSec);
+    if (!resp.value(QStringLiteral("ok")).toBool())
+        setLastErr(formatErr(resp));
+    else
+        setLastErr(QString());
 
-    QJsonArray entries;
-    entries.append(entry);
-    QJsonObject req;
-    req.insert(QStringLiteral("entries"), entries);
-    const QString requestJson = QString::fromUtf8(
-        QJsonDocument(req).toJson(QJsonDocument::Compact));
-
-    const QString resp = callChronicle(
-        QStringLiteral("anchorBatchJson"),
-        QVariantList{requestJson});
-    const QJsonObject obj = parseObject(resp);
-
-    if (!obj.value(QStringLiteral("ok")).toBool()) {
-        const QString code  = obj.value(QStringLiteral("code")).toString();
-        const QString error = obj.value(QStringLiteral("error")).toString();
-        setLastError(code.isEmpty() ? error
-                                    : QStringLiteral("%1: %2").arg(code, error));
-    } else {
-        setLastError(QString());
-    }
-
-    // Chronicle has persisted the resulting record (or skipped persistence
-    // because the attempt never reached the chain). Re-read its authoritative
-    // map rather than mirroring locally.
-    refreshAnchors();
-}
-
-void WhistleblowerPlugin::clearHistory() {
-    if (busy()) {
-        setLastError(QStringLiteral("cannot clear while a publish is in progress"));
-        return;
-    }
-    const QString resp = callChronicle(QStringLiteral("clearPublishedJson"));
-    const QJsonObject obj = parseObject(resp);
-    if (!obj.value(QStringLiteral("ok")).toBool()) {
-        const QString code  = obj.value(QStringLiteral("code")).toString();
-        const QString error = obj.value(QStringLiteral("error")).toString();
-        setLastError(code.isEmpty() ? error
-                                    : QStringLiteral("%1: %2").arg(code, error));
-        return;
-    }
-    // Clear the status panel too — last-publish details would be misleading
-    // once the underlying records are gone.
-    setStatus(QStringLiteral("idle"));
-    setCid(QString());
-    setMetadataHash(QString());
-    setCurrentPublishId(QString());
-    setLastError(QString());
-    // Anchor records are keyed by CID — cleared publishes mean orphaned
-    // anchor entries with no UI row to render on. Wipe them too.
-    callChronicle(QStringLiteral("clearAnchorsJson"));
-    refreshAnchors();
-    refreshPublishedList();
-}
-
-void WhistleblowerPlugin::resetPublishState() {
-    setCurrentPublishId(QString());
-    setCid(QString());
-    setMetadataHash(QString());
-    setLastError(QString());
-}
-
-void WhistleblowerPlugin::publish(QString path,
-                                  QString contentType,
-                                  QString title,
-                                  QString description,
-                                  QString tagsCsv) {
-    if (busy()) {
-        setLastError(QStringLiteral("a publish is already in progress"));
-        return;
-    }
-
-    QJsonArray tagsArr;
-    for (const QString& raw : tagsCsv.split(',', Qt::SkipEmptyParts)) {
-        const QString tag = raw.trimmed();
-        if (!tag.isEmpty()) {
-            tagsArr.append(tag);
-        }
-    }
-
-    QString resolvedContentType = contentType.trimmed();
-    if (resolvedContentType.isEmpty()) {
-        // Detect via Qt's MIME database — checks extension AND sniffs the file
-        // header, falls back to application/octet-stream.
-        QMimeDatabase db;
-        const QMimeType mt = db.mimeTypeForFile(
-            QFileInfo(path), QMimeDatabase::MatchDefault);
-        resolvedContentType = mt.isValid()
-            ? mt.name()
-            : QStringLiteral("application/octet-stream");
-    }
-
-    QJsonObject req;
-    req.insert(QStringLiteral("path"), path);
-    req.insert(QStringLiteral("content_type"), resolvedContentType);
-    req.insert(QStringLiteral("title"), title);
-    req.insert(QStringLiteral("description"), description);
-    req.insert(QStringLiteral("tags"), tagsArr);
-    req.insert(QStringLiteral("broadcast"), true);
-
-    resetPublishState();
-    setBusy(true);
-    setStatus(QStringLiteral("queued"));
-
-    const QString resp = callChronicle(
-        QStringLiteral("publishFileJson"),
-        QVariantList{compactJson(req)});
-    handlePublishResponse(resp);
-}
-
-void WhistleblowerPlugin::handlePublishResponse(const QString& responseJson) {
-    const QJsonObject obj = parseObject(responseJson);
-
-    if (!obj.value(QStringLiteral("queued")).toBool()) {
-        setBusy(false);
-        setStatus(QStringLiteral("error"));
-        const QString code  = obj.value(QStringLiteral("code")).toString();
-        const QString error = obj.value(QStringLiteral("error")).toString();
-        setLastError(code.isEmpty() ? error
-                                    : QStringLiteral("%1: %2").arg(code, error));
-        return;
-    }
-
-    setCurrentPublishId(obj.value(QStringLiteral("publish_id")).toString());
-    if (m_pollTimer != nullptr && !m_pollTimer->isActive()) {
-        m_pollTimer->start();
-    }
-}
-
-void WhistleblowerPlugin::pollPublishStatus() {
-    const QString publishId = currentPublishId();
-    if (publishId.isEmpty()) {
-        m_pollTimer->stop();
-        return;
-    }
-
-    const QString resp = callChronicle(
-        QStringLiteral("publishStatusJson"),
-        QVariantList{publishId});
-    const QJsonObject obj = parseObject(resp);
-
-    const QString newStatus = obj.value(QStringLiteral("status")).toString();
-    if (!newStatus.isEmpty()) {
-        setStatus(newStatus);
-    }
-
-    const QString newCid = obj.value(QStringLiteral("cid")).toString();
-    if (!newCid.isEmpty() && newCid != cid()) {
-        setCid(newCid);
-    }
-    const QString newHash = obj.value(QStringLiteral("metadata_hash")).toString();
-    if (!newHash.isEmpty() && newHash != metadataHash()) {
-        setMetadataHash(newHash);
-    }
-
-    const bool terminal = (newStatus == QStringLiteral("broadcast_sent") ||
-                           newStatus == QStringLiteral("error"));
-    if (terminal) {
-        m_pollTimer->stop();
-        setBusy(false);
-        if (newStatus == QStringLiteral("error")) {
-            const QString code  = obj.value(QStringLiteral("code")).toString();
-            const QString error = obj.value(QStringLiteral("error")).toString();
-            setLastError(code.isEmpty() ? error
-                                        : QStringLiteral("%1: %2").arg(code, error));
-        }
-        // History changed (either a new broadcast_sent record landed, or an
-        // error record was persisted). Push the latest list to the UI.
-        refreshPublishedList();
-    }
-}
-
-QString WhistleblowerPlugin::listPublishedJson() {
-    return callChronicle(QStringLiteral("listPublishedJson"));
+    reloadAnchors();
 }

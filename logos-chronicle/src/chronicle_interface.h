@@ -10,6 +10,9 @@
 #include "interface.h"
 #include "logos_types.h"
 
+// Qt plugin interface for the chronicle document-indexing module.
+// All methods are JSON-in / JSON-out — callers parse the returned QString as
+// a JSON object containing at minimum {"ok": true|false}.
 class ChronicleInterface : public PluginInterface
 {
 public:
@@ -17,48 +20,36 @@ public:
 
     Q_INVOKABLE virtual QString health() = 0;
 
+    // Upload
     Q_INVOKABLE virtual QString uploadFileJson(const QString& path,
                                                const QString& contentType,
                                                const QString& title) = 0;
-
     Q_INVOKABLE virtual QString uploadStatusJson(const QString& uploadId) = 0;
 
-    Q_INVOKABLE virtual QString normalizeContentTypeJson(
-        const QString& contentType) = 0;
-
+    // Metadata helpers
+    Q_INVOKABLE virtual QString normalizeContentTypeJson(const QString& ct) = 0;
     Q_INVOKABLE virtual QString hashMetadataJson(const QString& contentType,
                                                  const QString& sizeBytes,
                                                  const QString& title,
                                                  const QString& description,
                                                  const QString& tagsJson) = 0;
-
     Q_INVOKABLE virtual QString buildMetadataEnvelopeJson(
         const QString& envelopeInputJson) = 0;
 
+    // Broadcast
     Q_INVOKABLE virtual QString startBroadcasterJson() = 0;
-
     Q_INVOKABLE virtual QString broadcastEnvelopeJson(
         const QString& envelopeJson) = 0;
-
     Q_INVOKABLE virtual QString broadcastStatusJson(
         const QString& broadcastId) = 0;
 
-    Q_INVOKABLE virtual QString publishFileJson(
-        const QString& requestJson) = 0;
-
-    Q_INVOKABLE virtual QString publishStatusJson(
-        const QString& publishId) = 0;
-
+    // Combined publish (upload + broadcast)
+    Q_INVOKABLE virtual QString publishFileJson(const QString& requestJson) = 0;
+    Q_INVOKABLE virtual QString publishStatusJson(const QString& publishId) = 0;
     Q_INVOKABLE virtual QString listPublishedJson() = 0;
-
     Q_INVOKABLE virtual QString clearPublishedJson() = 0;
 
-    // ── On-chain anchoring (phase 1: stubs; config is functional) ────────────
-    // anchorCapabilitiesJson / get / set are functional now and let the UI
-    // collect anchor settings before the on-chain backend is wired.
-    // The three action methods (batch / status / lookup) currently return
-    // ANCHOR_NOT_CONFIGURED while unconfigured, ANCHOR_NOT_IMPLEMENTED once
-    // configured. Phase 2 swaps the implementation behind the same interface.
+    // On-chain anchoring
     Q_INVOKABLE virtual QString anchorCapabilitiesJson() = 0;
     Q_INVOKABLE virtual QString getAnchorConfigJson() = 0;
     Q_INVOKABLE virtual QString setAnchorConfigJson(const QString& cfgJson) = 0;
@@ -68,9 +59,7 @@ public:
     Q_INVOKABLE virtual QString listAnchorsJson() = 0;
     Q_INVOKABLE virtual QString clearAnchorsJson() = 0;
 
-    // Admin / verification — proxy straight through to the FFI. Used by
-    // smoke tests to prove the registry PDA actually contains a CID after
-    // anchorBatchJson, and to set up the PDA on first use.
+    // Admin / smoke-test helpers — not exposed via auto-generated proxy
     Q_INVOKABLE virtual QString initRegistryJson() = 0;
     Q_INVOKABLE virtual QString getRegistryJson() = 0;
 };

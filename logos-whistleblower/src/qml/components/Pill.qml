@@ -1,52 +1,55 @@
 import QtQuick
 import QtQuick.Layouts
 
-// Compact status badge. tone: "neutral" | "accent" | "success" | "warning" | "danger".
-// Optional pulsing dot for in-flight states.
+// Compact status badge. tone: "ok" | "warn" | "err" | "teal" | "neutral"
+// Set blink: true to pulse the indicator dot for in-flight states.
 Rectangle {
     id: root
-    property var theme
-    property string text: ""
-    property string tone: "neutral"
-    property bool pulse: false
 
-    readonly property color toneColor:
-        tone === "success" ? theme.success
-      : tone === "warning" ? theme.warning
-      : tone === "danger"  ? theme.danger
-      : tone === "accent"  ? theme.accent
-      :                      theme.muted
+    property var    t
+    property string label:  ""
+    property string tone:   "neutral"
+    property bool   blink:  false
 
-    implicitHeight: 22
-    implicitWidth: row.implicitWidth + theme.s3 * 2
-    radius: implicitHeight / 2
-    color: Qt.rgba(toneColor.r, toneColor.g, toneColor.b, 0.14)
-    border.color: Qt.rgba(toneColor.r, toneColor.g, toneColor.b, 0.45)
-    border.width: 1
+    readonly property color toneCol:
+        tone === "ok"      ? t.ok
+      : tone === "warn"    ? t.warn
+      : tone === "err"     ? t.err
+      : tone === "teal"    ? t.teal
+      :                      t.neutral
+
+    implicitHeight: 20
+    implicitWidth:  row.implicitWidth + t.sp3 * 2
+    radius:         implicitHeight / 2
+    color:          Qt.rgba(toneCol.r, toneCol.g, toneCol.b, 0.12)
+    border.color:   Qt.rgba(toneCol.r, toneCol.g, toneCol.b, 0.40)
+    border.width:   1
 
     RowLayout {
         id: row
         anchors.centerIn: parent
-        spacing: theme.s2
+        spacing: t.sp2
 
         Rectangle {
-            visible: root.pulse
-            width: 6; height: 6
+            visible: root.blink
+            width: 5; height: 5
             radius: 3
-            color: root.toneColor
+            color: root.toneCol
+
             SequentialAnimation on opacity {
-                running: root.pulse
-                loops: Animation.Infinite
-                NumberAnimation { to: 0.35; duration: 700 }
-                NumberAnimation { to: 1.0;  duration: 700 }
+                running: root.blink
+                loops:   Animation.Infinite
+                NumberAnimation { to: 0.2;  duration: 600 }
+                NumberAnimation { to: 1.0;  duration: 600 }
             }
         }
+
         Text {
-            text: root.text
-            color: root.toneColor
-            font.pixelSize: theme.fpLabel
-            font.bold: true
-            font.letterSpacing: 0.4
+            text:            root.label
+            color:           root.toneCol
+            font.pixelSize:  t.fsXs
+            font.bold:       true
+            font.letterSpacing: 0.5
         }
     }
 }

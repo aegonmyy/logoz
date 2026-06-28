@@ -2,125 +2,117 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Modal config form for the on-chain anchor settings. Sibling components
-// (Field, PrimaryButton, GhostButton) are in the same dir and auto-resolve.
+// Modal form for configuring the on-chain anchor.
+// Fields are pre-filled from the persisted chronicle config on open.
 Dialog {
     id: root
-    property var theme
-    // Last `anchorCapabilitiesJson` payload from chronicle (string of JSON).
-    property string capabilitiesJson: ""
-    // Last `getAnchorConfigJson().config` payload (string of JSON).
-    property string configJson: "{}"
-    // PublishId the user clicked on before we opened — exposed so callers can
-    // resume the anchor flow after a successful save.
-    property string pendingPublishId: ""
+
+    property var    t
+    property string capabilitiesJson:  ""
+    property string configJson:        "{}"
+    // Set this to the publishId that triggered the dialog; callers can use it
+    // to resume the anchor flow once the user saves.
+    property string pendingPublishId:  ""
 
     signal save(string cfgJson)
 
-    readonly property var parsedConfig: {
-        try { return JSON.parse(configJson) || {} } catch (e) { return {} }
+    readonly property var cfg: {
+        try { return JSON.parse(configJson) || {} } catch (_) { return {} }
     }
-    readonly property var missingFields: {
-        try {
-            var caps = JSON.parse(capabilitiesJson)
-            return caps.missing_fields || []
-        } catch (e) { return [] }
+    readonly property var caps: {
+        try { return JSON.parse(capabilitiesJson) || {} } catch (_) { return {} }
     }
-    function isMissing(name) { return missingFields.indexOf(name) !== -1 }
+    readonly property var missing: caps.missing_fields || []
+    function needsField(name) { return missing.indexOf(name) !== -1 }
 
-    modal: true
-    width: 520
-    padding: theme.s4
+    modal:       true
+    width:       500
+    padding:     t.sp5
     closePolicy: Popup.CloseOnEscape | Popup.NoAutoClose
 
     background: Rectangle {
-        color: theme.surface
-        radius: theme.rMd
-        border.color: theme.lineStrong
+        color:        t.panel
+        radius:       t.rSm
+        border.color: t.rimStrong
         border.width: 1
     }
 
     onOpened: {
-        var c = parsedConfig
-        programIdField.text       = c.program_id        || ""
-        sequencerField.text       = c.sequencer_url     || ""
-        walletField.text          = c.wallet_home       || ""
-        signerField.text          = c.signer_account_id || ""
+        progField.text   = cfg.program_id        || ""
+        seqField.text    = cfg.sequencer_url     || ""
+        walletField.text = cfg.wallet_home       || ""
+        acctField.text   = cfg.signer_account_id || ""
     }
 
     contentItem: ColumnLayout {
-        spacing: theme.s3
+        spacing: t.sp3
 
         Text {
-            text: "Anchor settings"
-            color: theme.fg
-            font.pixelSize: theme.fpLg
-            font.bold: true
+            text:           "Anchor configuration"
+            color:          t.ink
+            font.pixelSize: t.fsLg
+            font.bold:      true
         }
+
         Text {
-            text: "On-chain anchoring writes a publish's (cid, metadata_hash, timestamp) " +
-                  "to a chronicle-registry deployment. Fill these once; chronicle " +
-                  "persists them locally."
-            color: theme.fg3
-            font.pixelSize: theme.fpSm
-            wrapMode: Text.Wrap
+            text: "Chronicle writes each publish's (cid, metadata_hash, timestamp) " +
+                  "to your deployed chronicle-registry SPEL program. " +
+                  "Settings are saved locally by chronicle."
+            color:          t.ink3
+            font.pixelSize: t.fsSm
+            wrapMode:       Text.Wrap
             Layout.fillWidth: true
         }
 
         Field {
-            id: programIdField
+            id: progField
             Layout.fillWidth: true
-            theme: root.theme
-            label: "Program ID (required)"
-            placeholderText: "32-byte hex from `spel deploy` output"
-            errorText: root.isMissing("program_id") && programIdField.text.trim() === "" ? "Required" : ""
+            t:     root.t
+            label: root.needsField("program_id") ? "Program ID  (required)" : "Program ID"
+            placeholderText: "32-byte hex  — from `spel program-id --format hex`"
         }
         Field {
-            id: sequencerField
+            id: seqField
             Layout.fillWidth: true
-            theme: root.theme
+            t:     root.t
             label: "Sequencer URL"
             placeholderText: "http://127.0.0.1:3040"
-            errorText: root.isMissing("sequencer_url") && sequencerField.text.trim() === "" ? "Required" : ""
         }
         Field {
             id: walletField
             Layout.fillWidth: true
-            theme: root.theme
+            t:     root.t
             label: "Wallet home"
             placeholderText: "Path to spel-framework wallet directory"
-            errorText: root.isMissing("wallet_home") && walletField.text.trim() === "" ? "Required" : ""
         }
         Field {
-            id: signerField
+            id: acctField
             Layout.fillWidth: true
-            theme: root.theme
+            t:     root.t
             label: "Signer account ID"
             placeholderText: "Base58 account id"
-            errorText: root.isMissing("signer_account_id") && signerField.text.trim() === "" ? "Required" : ""
         }
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.topMargin: theme.s2
-            spacing: theme.s2
+            Layout.topMargin: t.sp2
+            spacing: t.sp2
             Item { Layout.fillWidth: true }
             GhostButton {
-                theme: root.theme
+                t: root.t
                 text: "Cancel"
                 onClicked: root.close()
             }
             PrimaryButton {
-                theme: root.theme
+                t: root.t
                 text: "Save"
                 onClicked: {
-                    var payload = {
-                        program_id:        programIdField.text.trim(),
-                        sequencer_url:     sequencerField.text.trim(),
+                    root.save(JSON.stringify({
+                        program_id:        progField.text.trim(),
+                        sequencer_url:     seqField.text.trim(),
                         wallet_home:       walletField.text.trim(),
-                        signer_account_id: signerField.text.trim()
-                    }
-                    root.save(JSON.stringify(payload))
+                        signer_account_id: acctField.text.trim(),
+                    }))
                     root.close()
                 }
             }

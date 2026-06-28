@@ -3,447 +3,451 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 
-import "components" as Comp
+import "components" as C
 
-// Whistleblower main screen. Root is a Rectangle so the app paints its own
-// canvas with the Theme's bg color instead of inheriting the host's window
-// chrome colour.
 Rectangle {
     id: root
-    color: theme.bg
-    // Exposed so Repeater delegates can reference the theme without their
-    // own `theme:` binding shadowing the outer id.
-    readonly property var palette: theme
+    color: t.canvas
 
-    // ── Backend wiring ───────────────────────────────────────────────────────
-    readonly property var backend: logos.module("whistleblower")
-    readonly property bool connected: backend !== null && backend.state === 2
-    readonly property string status: backend ? backend.status : ""
-    readonly property bool busy: backend ? backend.busy : false
-    readonly property string cid: backend ? backend.cid : ""
-    readonly property string metadataHash: backend ? backend.metadataHash : ""
-    readonly property string lastError: backend ? backend.lastError : ""
-    readonly property bool deliveryReady: backend ? backend.deliveryReady : false
-    readonly property string publishedRecordsJson: backend ? backend.publishedRecordsJson : ""
+    // ── Theme token object ────────────────────────────────────────────────────
+    Theme { id: t }
 
-    readonly property var publishedRecords: {
-        if (!publishedRecordsJson) return []
-        try { return JSON.parse(publishedRecordsJson) } catch (e) { return [] }
+    // ── Backend wiring ────────────────────────────────────────────────────────
+    readonly property var    bk:           logos.module("whistleblower")
+    readonly property bool   linked:       bk !== null && bk.state === 2
+
+    readonly property string phase:        bk ? bk.phase        : ""
+    readonly property bool   working:      bk ? bk.working      : false
+    readonly property string contentId:    bk ? bk.contentId    : ""
+    readonly property string docHash:      bk ? bk.docHash      : ""
+    readonly property string lastErr:      bk ? bk.lastErr      : ""
+    readonly property bool   networkReady: bk ? bk.networkReady : false
+    readonly property string historyJson:  bk ? bk.historyJson  : "[]"
+
+    readonly property string anchorCapsJson: bk ? bk.anchorCapsJson : ""
+    readonly property string anchorCfgJson:  bk ? bk.anchorCfgJson  : ""
+    readonly property string anchorsMapJson: bk ? bk.anchorsMapJson  : "{}"
+
+    readonly property var history: {
+        try { return JSON.parse(historyJson) || [] } catch (_) { return [] }
     }
-
-    // ── Anchor state ────────────────────────────────────────────────────────
-    readonly property string anchorCapabilitiesJson: backend ? backend.anchorCapabilitiesJson : ""
-    readonly property string anchorConfigJson:       backend ? backend.anchorConfigJson : ""
-    readonly property string anchorsJson:            backend ? backend.anchorsJson : ""
     readonly property var anchorCaps: {
-        if (!anchorCapabilitiesJson) return { configured: false, missing_fields: [] }
-        try { return JSON.parse(anchorCapabilitiesJson) } catch (e) { return { configured: false, missing_fields: [] } }
+        try { return JSON.parse(anchorCapsJson) || {} } catch (_) { return {} }
     }
-    readonly property bool anchorConfigured: !!anchorCaps.configured
-    // anchorsJson is keyed by CID (matches on-chain identity, lets two
-    // publishes of the same document share anchor state).
-    readonly property var anchorsByCid: {
-        if (!anchorsJson) return {}
-        try { return JSON.parse(anchorsJson) || {} } catch (e) { return {} }
+    readonly property bool anchorReady: !!anchorCaps.configured
+
+    readonly property var anchorsMap: {
+        try { return JSON.parse(anchorsMapJson) || {} } catch (_) { return {} }
     }
-    function anchorStateFor(cid) {
-        if (!cid) return null
-        return anchorsByCid[cid] || null
-    }
-    function anchorButtonLabel(cid) {
-        var s = anchorStateFor(cid)
-        if (!s) return "Anchor"
+
+    function anchorState(cid) { return cid ? (anchorsMap[cid] || null) : null }
+
+    function anchorLabel(cid) {
+        var s = anchorState(cid)
+        if (!s)                      return "Anchor"
         if (s.state === "confirmed") return "Anchored ✓"
-        if (s.state === "failed") return "Retry"
+        if (s.state === "failed")    return "Retry anchor"
         return "Anchor"
     }
 
-    Theme { id: theme }
-
-    function connectionPillTone() {
-        if (!connected || !deliveryReady) return "warning"
-        return "success"
-    }
-    function connectionPillText() {
-        if (!connected)     return "Connecting…"
-        if (!deliveryReady) return "Delivery offline"
-        return "Connected"
-    }
-    function statusPillTone(s) {
-        if (s === "broadcast_sent")  return "success"
-        if (s === "error")           return "danger"
-        if (s === "idle" || s === "") return "neutral"
-        return "warning"
+    function onAnchorClicked(publishId) {
+        if (!root.anchorReady) {
+            cfgDialog.pendingPublishId = publishId
+            cfgDialog.open()
+        } else {
+            bk.anchorJob(publishId)
+        }
     }
 
+    // ── Connection / phase helpers ────────────────────────────────────────────
+    function connTone()  {
+        if (!linked || !networkReady) return "warn"
+        return "ok"
+    }
+    function connLabel() {
+        if (!linked)      return "Connecting…"
+        if (!networkReady) return "Delivery offline"
+        return "Live"
+    }
+    function phaseTone(p) {
+        if (p === "done")  return "ok"
+        if (p === "error") return "err"
+        if (p === "idle" || p === "") return "neutral"
+        return "warn"
+    }
+
+    // ── Dialogs ───────────────────────────────────────────────────────────────
     FileDialog {
         id: filePicker
-        title: "Choose a file to publish"
+        title: "Select file to publish"
         onAccepted: {
-            // selectedFile is a file:// URL — strip the scheme for chronicle.
             var u = filePicker.selectedFile.toString()
-            pathField.text = u.replace(/^file:\/\//, "")
+            pathIn.text = u.replace(/^file:\/\//, "")
         }
     }
 
     MessageDialog {
-        id: clearConfirm
-        title: "Clear publish history?"
-        text: "Remove all " + root.publishedRecords.length +
-              " local publish record(s)? Files already uploaded to Storage and " +
-              "broadcasts already sent will not be rolled back."
+        id: clearDlg
+        title: "Discard history?"
+        text: "Remove all " + root.history.length + " record(s) from the local ledger? " +
+              "Uploads already on Storage and broadcasts already sent are not rolled back."
         buttons: MessageDialog.Yes | MessageDialog.Cancel
-        onAccepted: backend.clearHistory()
+        onAccepted: bk.discardHistory()
     }
 
-    Comp.AnchorConfigDialog {
-        id: anchorConfig
-        theme: theme
-        anchors.centerIn: parent
-        capabilitiesJson: root.anchorCapabilitiesJson
-        // configJson from chronicle is wrapped: {"ok": true, "config": {...}}
+    C.AnchorConfigDialog {
+        id: cfgDialog
+        t:               t
+        capabilitiesJson: root.anchorCapsJson
         configJson: {
             try {
-                var w = JSON.parse(root.anchorConfigJson || "{}")
+                var w = JSON.parse(root.anchorCfgJson || "{}")
                 return JSON.stringify(w.config || {})
-            } catch (e) { return "{}" }
+            } catch (_) { return "{}" }
         }
-        onSave: function(cfgJson) { backend.setAnchorConfig(cfgJson) }
+        anchors.centerIn: parent
+        onSave: function(cfg) { bk.applyAnchorConfig(cfg) }
     }
 
-    function handleAnchorClick(publishId) {
-        if (!root.anchorConfigured) {
-            anchorConfig.pendingPublishId = publishId
-            anchorConfig.open()
-            return
-        }
-        backend.anchorPublished(publishId)
-    }
-
+    // ── Root layout ───────────────────────────────────────────────────────────
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: theme.s5
-        spacing: theme.s4
+        anchors.fill:    parent
+        anchors.margins: t.sp5
+        spacing:         t.sp4
 
-        // ── Header ───────────────────────────────────────────────────────────
+        // ── Header row ────────────────────────────────────────────────────────
         RowLayout {
             Layout.fillWidth: true
-            spacing: theme.s3
+            spacing: t.sp3
 
             ColumnLayout {
                 spacing: 2
                 Text {
-                    text: "Whistleblower"
-                    color: theme.fg
-                    font.pixelSize: theme.fpHero
-                    font.bold: true
+                    text:           "Whistleblower"
+                    color:          t.ink
+                    font.pixelSize: t.fsTitle
+                    font.bold:      true
                 }
                 Text {
-                    text: "Censorship-resistant document publishing"
-                    color: theme.fg3
-                    font.pixelSize: theme.fpSm
+                    text:           "Censorship-resistant document publishing on Logos"
+                    color:          t.ink3
+                    font.pixelSize: t.fsSm
                 }
             }
+
             Item { Layout.fillWidth: true }
-            Comp.Pill {
-                theme: theme
-                text: root.connectionPillText()
-                tone: root.connectionPillTone()
-                pulse: !root.connected || !root.deliveryReady
+
+            C.Pill {
+                t:     t
+                label: root.connLabel()
+                tone:  root.connTone()
+                blink: !root.linked || !root.networkReady
                 Layout.alignment: Qt.AlignVCenter
             }
-            Comp.GhostButton {
-                theme: root.palette
+
+            C.GhostButton {
+                t:    t
                 text: "Anchor settings"
                 Layout.alignment: Qt.AlignVCenter
                 onClicked: {
-                    anchorConfig.pendingPublishId = ""
-                    anchorConfig.open()
+                    cfgDialog.pendingPublishId = ""
+                    cfgDialog.open()
                 }
             }
         }
 
-        // ── Document form ────────────────────────────────────────────────────
-        Comp.Card {
-            theme: theme
+        // ── Publish form ──────────────────────────────────────────────────────
+        C.Card {
+            t: t
             Layout.fillWidth: true
-            Layout.preferredHeight: formCol.implicitHeight + theme.s4 * 2
+            Layout.preferredHeight: formLayout.implicitHeight + t.sp5 * 2
 
             ColumnLayout {
-                id: formCol
-                anchors.fill: parent
-                anchors.margins: theme.s4
-                spacing: theme.s3
+                id: formLayout
+                anchors.fill:    parent
+                anchors.margins: t.sp4
+                spacing:         t.sp3
 
                 Text {
-                    text: "Document"
-                    color: theme.fg
-                    font.pixelSize: theme.fpLg
-                    font.bold: true
+                    text:           "Publish document"
+                    color:          t.ink
+                    font.pixelSize: t.fsLg
+                    font.bold:      true
                 }
 
                 RowLayout {
-                    spacing: theme.s2
+                    spacing: t.sp2
                     Layout.fillWidth: true
-                    Comp.Field {
-                        id: pathField
+
+                    C.Field {
+                        id: pathIn
                         Layout.fillWidth: true
-                        theme: theme
-                        label: "File path"
-                        placeholderText: "/absolute/path/to/file"
-                        enabled: !root.busy
+                        t:               t
+                        label:           "File path"
+                        placeholderText: "/absolute/path/to/document"
+                        enabled:         !root.working
                     }
-                    Comp.GhostButton {
-                        theme: theme
-                        text: "Browse…"
+                    C.GhostButton {
+                        t:        t
+                        text:     "Browse…"
+                        enabled:  !root.working
                         Layout.alignment: Qt.AlignBottom
-                        enabled: !root.busy
                         onClicked: filePicker.open()
                     }
                 }
 
-                Comp.Field {
-                    id: titleField
+                C.Field {
+                    id: titleIn
                     Layout.fillWidth: true
-                    theme: theme
-                    label: "Title"
-                    placeholderText: "Public title"
-                    enabled: !root.busy
+                    t:               t
+                    label:           "Title"
+                    placeholderText: "Human-readable title (required)"
+                    enabled:         !root.working
                 }
-                Comp.Field {
-                    id: descField
+
+                C.Field {
+                    id: descIn
                     Layout.fillWidth: true
-                    theme: theme
-                    label: "Description"
-                    placeholderText: "(optional)"
-                    enabled: !root.busy
+                    t:               t
+                    label:           "Description"
+                    placeholderText: "Optional summary"
+                    enabled:         !root.working
                 }
-                Comp.Field {
-                    id: tagsField
+
+                C.Field {
+                    id: tagsIn
                     Layout.fillWidth: true
-                    theme: theme
-                    label: "Tags (CSV)"
-                    placeholderText: "evidence, internal, draft"
-                    enabled: !root.busy
+                    t:               t
+                    label:           "Tags  (comma-separated)"
+                    placeholderText: "leak, finance, 2025"
+                    enabled:         !root.working
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: theme.s1
-                    spacing: theme.s2
+                    Layout.topMargin: t.sp1
+                    spacing: t.sp2
+
                     Item { Layout.fillWidth: true }
-                    Comp.GhostButton {
-                        theme: theme
-                        text: "Reconnect"
-                        visible: !root.deliveryReady
-                        enabled: root.connected && !root.busy
-                        onClicked: backend.startBroadcaster()
+
+                    C.GhostButton {
+                        t:       t
+                        text:    "Reconnect"
+                        visible: !root.networkReady
+                        enabled: root.linked && !root.working
+                        onClicked: bk.connectDelivery()
                     }
-                    Comp.PrimaryButton {
-                        theme: theme
-                        text: root.busy ? "Publishing…" : "Publish"
-                        enabled: root.connected && !root.busy &&
-                                 pathField.text.length > 0 && titleField.text.length > 0
+
+                    C.PrimaryButton {
+                        t:       t
+                        text:    root.working ? "Publishing…" : "Publish"
+                        enabled: root.linked && !root.working &&
+                                 pathIn.text.length > 0 &&
+                                 titleIn.text.length > 0
                         onClicked: {
-                            // Empty content type → plugin auto-detects via QMimeDatabase
-                            logos.watch(backend.publish(
-                                pathField.text, "",
-                                titleField.text, descField.text, tagsField.text
-                            ), function() {}, function(err) {
-                                console.warn("publish call failed:", err)
-                            })
+                            bk.submitDocument(pathIn.text, "",
+                                              titleIn.text, descIn.text, tagsIn.text)
                         }
                     }
                 }
             }
         }
 
-        // ── Current-publish status ──────────────────────────────────────────
-        Comp.Card {
-            theme: theme
+        // ── Phase / result strip ──────────────────────────────────────────────
+        C.Card {
+            t: t
             Layout.fillWidth: true
-            Layout.preferredHeight: statusCol.implicitHeight + theme.s3 * 2
-            visible: root.status.length > 0 || root.cid.length > 0
+            Layout.preferredHeight: phaseRow.implicitHeight + t.sp3 * 2
+            visible: root.phase.length > 0 || root.contentId.length > 0
 
             ColumnLayout {
-                id: statusCol
-                anchors.fill: parent
-                anchors.margins: theme.s3
-                spacing: theme.s2
+                id: phaseRow
+                anchors.fill:    parent
+                anchors.margins: t.sp3
+                spacing:         t.sp2
 
                 RowLayout {
-                    spacing: theme.s2
+                    spacing: t.sp2
+
                     Text {
-                        text: "STATUS"
-                        color: theme.fg3
-                        font.pixelSize: theme.fpLabel
-                        font.letterSpacing: 0.8
-                        font.bold: true
+                        text:               "STATUS"
+                        color:              t.ink3
+                        font.pixelSize:     t.fsXs
+                        font.letterSpacing: 1.0
+                        font.bold:          true
                     }
-                    Comp.Pill {
-                        theme: theme
-                        text: root.status === "" ? "idle" : root.status
-                        tone: root.statusPillTone(root.status)
-                        pulse: root.busy
+                    C.Pill {
+                        t:     t
+                        label: root.phase === "" ? "idle" : root.phase.toUpperCase()
+                        tone:  root.phaseTone(root.phase)
+                        blink: root.working
                     }
                     BusyIndicator {
-                        running: root.busy
-                        visible: root.busy
-                        Layout.preferredHeight: 16
-                        Layout.preferredWidth: 16
+                        running: root.working
+                        visible: root.working
+                        Layout.preferredWidth:  14
+                        Layout.preferredHeight: 14
                     }
                     Item { Layout.fillWidth: true }
                 }
 
                 Text {
-                    visible: root.cid !== ""
-                    text: "CID   " + root.cid
-                    color: theme.success
-                    font.pixelSize: theme.fpSm
-                    font.family: "monospace"
+                    visible:        root.contentId !== ""
+                    text:           "CID   " + root.contentId
+                    color:          t.ok
+                    font.pixelSize: t.fsSm
+                    font.family:    "monospace"
                     Layout.fillWidth: true
-                    wrapMode: Text.WrapAnywhere
+                    wrapMode:       Text.WrapAnywhere
                 }
                 Text {
-                    visible: root.metadataHash !== ""
-                    text: "HASH  " + root.metadataHash
-                    color: theme.fg3
-                    font.pixelSize: theme.fpLabel
-                    font.family: "monospace"
+                    visible:        root.docHash !== ""
+                    text:           "HASH  " + root.docHash
+                    color:          t.ink3
+                    font.pixelSize: t.fsXs
+                    font.family:    "monospace"
                     Layout.fillWidth: true
-                    wrapMode: Text.WrapAnywhere
+                    wrapMode:       Text.WrapAnywhere
                 }
             }
         }
 
-        // ── Error toast (auto-collapses when no error) ──────────────────────
-        Comp.ToastBanner {
-            theme: theme
+        // ── Error banner ──────────────────────────────────────────────────────
+        C.ToastBanner {
+            t:    t
+            msg:  root.lastErr
+            tone: "err"
             Layout.fillWidth: true
-            message: root.lastError
-            tone: "danger"
         }
 
-        // ── History header ──────────────────────────────────────────────────
+        // ── History header ────────────────────────────────────────────────────
         RowLayout {
             Layout.fillWidth: true
-            spacing: theme.s2
+            spacing: t.sp2
+
             Text {
-                text: "History"
-                color: theme.fg
-                font.pixelSize: theme.fpLg
-                font.bold: true
+                text:           "History"
+                color:          t.ink
+                font.pixelSize: t.fsLg
+                font.bold:      true
             }
             Text {
-                text: "(" + root.publishedRecords.length + ")"
-                color: theme.fg3
-                font.pixelSize: theme.fpSm
+                text:           "(" + root.history.length + ")"
+                color:          t.ink3
+                font.pixelSize: t.fsSm
             }
             Item { Layout.fillWidth: true }
-            Comp.GhostButton {
-                theme: theme
-                text: "Refresh"
-                enabled: root.connected
-                onClicked: backend.refreshPublishedList()
+
+            C.GhostButton {
+                t:        t
+                text:     "Refresh"
+                enabled:  root.linked
+                onClicked: bk.reloadHistory()
             }
-            Comp.GhostButton {
-                theme: theme
-                text: "Clear"
-                enabled: root.connected && !root.busy && root.publishedRecords.length > 0
-                onClicked: clearConfirm.open()
+            C.GhostButton {
+                t:        t
+                text:     "Clear"
+                enabled:  root.linked && !root.working && root.history.length > 0
+                onClicked: clearDlg.open()
             }
         }
 
-        // ── History list ────────────────────────────────────────────────────
-        Comp.Card {
-            theme: theme
-            Layout.fillWidth: true
+        // ── History list ──────────────────────────────────────────────────────
+        C.Card {
+            t: t
+            Layout.fillWidth:  true
             Layout.fillHeight: true
-            Layout.minimumHeight: 140
+            Layout.minimumHeight: 120
 
             ListView {
-                anchors.fill: parent
-                anchors.margins: theme.s2
-                clip: true
-                model: root.publishedRecords
-                spacing: theme.s1
+                anchors.fill:    parent
+                anchors.margins: t.sp2
+                clip:            true
+                model:           root.history
+                spacing:         t.sp1
 
                 delegate: Rectangle {
                     id: row
-                    width: ListView.view.width
-                    height: rowCol.implicitHeight + theme.s3
-                    color: index % 2 === 0 ? theme.surfaceSubtle : "transparent"
-                    radius: theme.rSm
+                    width:  ListView.view.width
+                    height: rowInner.implicitHeight + t.sp3
+                    color:  index % 2 === 0 ? t.panelMid : "transparent"
+                    radius: t.rXs
 
-                    readonly property color statusColor:
-                        modelData.status === "broadcast_sent" ? theme.success
-                      : modelData.status === "error"          ? theme.danger
-                      :                                         theme.warning
+                    readonly property color rowStatusColor:
+                        modelData.status === "done"  ? t.ok
+                      : modelData.status === "error" ? t.err
+                      :                                t.warn
 
                     ColumnLayout {
-                        id: rowCol
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: theme.s3
-                        anchors.rightMargin: theme.s3
+                        id: rowInner
+                        anchors {
+                            left:           parent.left
+                            right:          parent.right
+                            verticalCenter: parent.verticalCenter
+                            leftMargin:     t.sp3
+                            rightMargin:    t.sp3
+                        }
                         spacing: 2
 
                         RowLayout {
-                            spacing: theme.s2
+                            spacing: t.sp2
                             Layout.fillWidth: true
+
                             Text {
                                 Layout.fillWidth: true
-                                text: modelData.title || "(untitled)"
-                                color: theme.fg
-                                font.pixelSize: theme.fpBody
-                                font.bold: true
-                                elide: Text.ElideRight
+                                text:            modelData.title || "(untitled)"
+                                color:           t.ink
+                                font.pixelSize:  t.fsMd
+                                font.bold:       true
+                                elide:           Text.ElideRight
                             }
                             Text {
-                                text: (modelData.status || "").toUpperCase()
-                                color: row.statusColor
-                                font.pixelSize: theme.fpLabel
-                                font.bold: true
-                                font.letterSpacing: 0.4
+                                text:            (modelData.status || "").toUpperCase()
+                                color:           row.rowStatusColor
+                                font.pixelSize:  t.fsXs
+                                font.bold:       true
+                                font.letterSpacing: 0.5
                             }
-                            Comp.GhostButton {
-                                visible: modelData.status === "broadcast_sent"
-                                theme: root.palette
-                                text: root.anchorButtonLabel(modelData.cid)
+                            C.GhostButton {
+                                visible: modelData.status === "done"
+                                t:       t
+                                text:    root.anchorLabel(modelData.cid)
                                 enabled: {
-                                    var s = root.anchorStateFor(modelData.cid)
+                                    var s = root.anchorState(modelData.cid)
                                     return !(s && s.state === "submitting")
                                 }
-                                onClicked: root.handleAnchorClick(modelData.publish_id)
+                                onClicked: root.onAnchorClicked(modelData.publish_id)
                             }
                         }
+
                         Text {
-                            visible: !!modelData.cid
-                            text: "CID  " + (modelData.cid || "")
-                            color: theme.fg3
-                            font.pixelSize: theme.fpLabel
-                            font.family: "monospace"
+                            visible:        !!modelData.cid
+                            text:           "CID  " + (modelData.cid || "")
+                            color:          t.ink3
+                            font.pixelSize: t.fsXs
+                            font.family:    "monospace"
                             Layout.fillWidth: true
-                            elide: Text.ElideMiddle
+                            elide:          Text.ElideMiddle
                         }
+
                         Text {
-                            visible: !!modelData.error && modelData.status === "error"
-                            text: (modelData.code ? modelData.code + ": " : "") + (modelData.error || "")
-                            color: theme.danger
-                            font.pixelSize: theme.fpLabel
+                            visible:        modelData.status === "error" && !!modelData.error
+                            text:           (modelData.code ? modelData.code + ": " : "") +
+                                            (modelData.error || "")
+                            color:          t.err
+                            font.pixelSize: t.fsXs
                             Layout.fillWidth: true
-                            wrapMode: Text.Wrap
+                            wrapMode:       Text.Wrap
                         }
                     }
                 }
 
                 Text {
                     anchors.centerIn: parent
-                    visible: root.publishedRecords.length === 0
-                    text: "No publishes yet"
-                    color: theme.fg4
-                    font.pixelSize: theme.fpSm
+                    visible:        root.history.length === 0
+                    text:           "No publishes yet"
+                    color:          t.ink4
+                    font.pixelSize: t.fsSm
                 }
             }
         }

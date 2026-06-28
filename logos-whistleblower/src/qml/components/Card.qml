@@ -1,11 +1,10 @@
 import QtQuick
 
-// Surface container with subtle border. Children anchor themselves inside;
-// pass `Layout.preferredHeight` based on their implicit size + margins.
+// Raised panel with rim border and medium corner radius.
 Rectangle {
-    property var theme
-    color: theme.surface
-    radius: theme.rMd
+    property var t
+    color: t.panel
+    radius: t.rSm
     border.width: 1
-    border.color: theme.line
+    border.color: t.rim
 }

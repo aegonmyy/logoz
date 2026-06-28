@@ -7,7 +7,6 @@
 #include <QSet>
 #include <QString>
 #include <QStringList>
-#include <QVariantList>
 
 #include "chronicle_anchor_client.h"
 #include "chronicle_anchor_config.h"
@@ -27,206 +26,176 @@ public:
     ChroniclePlugin();
     ~ChroniclePlugin() override;
 
-    QString name() const override { return "chronicle"; }
-    QString version() const override { return "1.0.0"; }
+    QString name()    const override { return QStringLiteral("chronicle"); }
+    QString version() const override { return QStringLiteral("1.0.0"); }
 
     Q_INVOKABLE void initLogos(LogosAPI* api);
 
-    Q_INVOKABLE QString health() override;
+    Q_INVOKABLE QString health()                                    override;
     Q_INVOKABLE QString uploadFileJson(const QString& path,
                                        const QString& contentType,
-                                       const QString& title) override;
-    Q_INVOKABLE QString uploadStatusJson(const QString& uploadId) override;
-    Q_INVOKABLE QString normalizeContentTypeJson(
-        const QString& contentType) override;
+                                       const QString& title)        override;
+    Q_INVOKABLE QString uploadStatusJson(const QString& id)         override;
+    Q_INVOKABLE QString normalizeContentTypeJson(const QString& ct) override;
     Q_INVOKABLE QString hashMetadataJson(const QString& contentType,
                                          const QString& sizeBytes,
                                          const QString& title,
                                          const QString& description,
-                                         const QString& tagsJson) override;
+                                         const QString& tagsJson)   override;
     Q_INVOKABLE QString buildMetadataEnvelopeJson(
-        const QString& envelopeInputJson) override;
-    Q_INVOKABLE QString startBroadcasterJson() override;
+                             const QString& inputJson)               override;
+    Q_INVOKABLE QString startBroadcasterJson()                      override;
     Q_INVOKABLE QString broadcastEnvelopeJson(
-        const QString& envelopeJson) override;
-    Q_INVOKABLE QString broadcastStatusJson(
-        const QString& broadcastId) override;
-    Q_INVOKABLE QString publishFileJson(
-        const QString& requestJson) override;
-    Q_INVOKABLE QString publishStatusJson(
-        const QString& publishId) override;
-    Q_INVOKABLE QString listPublishedJson() override;
-    Q_INVOKABLE QString clearPublishedJson() override;
-
-    Q_INVOKABLE QString anchorCapabilitiesJson() override;
-    Q_INVOKABLE QString getAnchorConfigJson() override;
+                             const QString& envelopeJson)            override;
+    Q_INVOKABLE QString broadcastStatusJson(const QString& id)      override;
+    Q_INVOKABLE QString publishFileJson(const QString& reqJson)     override;
+    Q_INVOKABLE QString publishStatusJson(const QString& id)        override;
+    Q_INVOKABLE QString listPublishedJson()                         override;
+    Q_INVOKABLE QString clearPublishedJson()                        override;
+    Q_INVOKABLE QString anchorCapabilitiesJson()                    override;
+    Q_INVOKABLE QString getAnchorConfigJson()                       override;
     Q_INVOKABLE QString setAnchorConfigJson(const QString& cfgJson) override;
-    Q_INVOKABLE QString anchorBatchJson(const QString& requestJson) override;
-    Q_INVOKABLE QString anchorStatusJson(const QString& anchorId) override;
-    Q_INVOKABLE QString lookupAnchorJson(const QString& cid) override;
-    Q_INVOKABLE QString listAnchorsJson() override;
-    Q_INVOKABLE QString clearAnchorsJson() override;
+    Q_INVOKABLE QString anchorBatchJson(const QString& reqJson)     override;
+    Q_INVOKABLE QString anchorStatusJson(const QString& id)         override;
+    Q_INVOKABLE QString lookupAnchorJson(const QString& cid)        override;
+    Q_INVOKABLE QString listAnchorsJson()                           override;
+    Q_INVOKABLE QString clearAnchorsJson()                          override;
+    Q_INVOKABLE QString initRegistryJson()                          override;
+    Q_INVOKABLE QString getRegistryJson()                           override;
 
-    Q_INVOKABLE QString initRegistryJson() override;
-    Q_INVOKABLE QString getRegistryJson() override;
-
-    // Test-only knob: override the delivery topic used for broadcasts.
-    // Intentionally not in chronicle_interface.h — the UI's auto-generated
-    // proxy doesn't see this method, so production callers can't change the
-    // topic. Smoke tests use it for run-isolation (each run picks its own
-    // topic so concurrent runs don't cross-contaminate). Pass empty to reset
-    // to the compile-time default.
+    // Test-only: override broadcast topic for smoke-test isolation
     Q_INVOKABLE QString setBroadcastTopic(const QString& topic);
     Q_INVOKABLE QString getBroadcastTopic();
 
 signals:
-    void eventResponse(const QString& eventName, const QVariantList& args);
+    void eventResponse(const QString& name, const QVariantList& args);
 
 private:
-    struct PendingUpload {
-        QString uploadId;
+    // ── Job tracking ────────────────────────────────────────────────────────
+    // A single Job struct covers uploads, broadcasts, and publishes to keep
+    // state management in one place.
+
+    struct UploadJob {
+        QString id;
+        QString status;          // staging|uploading|done|error
+        QString path;
+        QString contentType;
+        QString title;
+        QString description;
+        QStringList tags;
+        QString cid;
+        QString metaHash;
+        QJsonObject envelope;
+        QString errCode;
+        QString errMsg;
+        qint64  sizeBytes   = 0;
+        qint64  startMs     = 0;
+        qint64  deadlineMs  = 0;
+        qint64  nextRetryMs = 0;
+        int     attempt     = 0;
         QString sessionId;
-        QString status;
-        QString stagedPath;
         QString stagingDir;
-        QString contentType;
-        QString title;
-        QString description;
-        QStringList tags;
-        QString cid;
-        QString metadataHash;
-        QJsonObject envelope;
-        QString errorCode;
-        QString error;
-        QString lastError;
-        QString publishId;
-        qint64 sizeBytes = 0;
-        qint64 timestamp = 0;
-        qint64 deadlineAtMs = 0;
-        qint64 nextRetryAtMs = 0;
-        qint64 attemptTimeoutMs = 0;
-        int attempt = 0;
+        QString stagedPath;
     };
 
-    struct PendingPublish {
-        QString publishId;
+    struct BroadcastJob {
+        QString id;
+        QString status;          // pending|sent|deduped|error
+        QString cid;
+        QString metaHash;
+        QString topic;
+        QJsonObject envelope;
+        QString errCode;
+        QString errMsg;
+        bool    deduped = false;
+        qint64  createdMs = 0;
+    };
+
+    struct PublishJob {
+        QString id;
+        QString status;          // uploading|broadcasting|done|error
         QString uploadId;
         QString broadcastId;
-        QString originalPublishId;
-        QString status;
-        QString errorCode;
-        QString error;
+        QString cid;
+        QString metaHash;
         QString contentType;
         QString title;
         QString description;
         QStringList tags;
-        QString cid;
-        qint64 sizeBytes = 0;
-        QString metadataHash;
+        qint64  sizeBytes = 0;
         QJsonObject envelope;
-        qint64 createdAtMs = 0;
-        qint64 updatedAtMs = 0;
-        bool broadcastRequested = true;
+        QString errCode;
+        QString errMsg;
+        qint64  createdMs = 0;
+        qint64  updatedMs = 0;
+        bool    wantBroadcast = true;
     };
 
-    struct PendingBroadcast {
-        QString broadcastId;
-        QString status;
-        QString topic;
-        QString cid;
-        QString metadataHash;
-        QString dedupeKey;
-        QString errorCode;
-        QString error;
-        QJsonObject envelope;
-        qint64 createdAtMs = 0;
-        qint64 updatedAtMs = 0;
-        bool deduped = false;
-    };
-
-    LogosResult prepareStagedUpload(const QString& path,
-                                    const QString& contentType,
-                                    const QString& title,
-                                    PendingUpload* pending) const;
-    void ensureStorageModule();
-    void ensureStorageEventSubscription();
-    bool ensureStorageReady(QString* error);
-    void ensureDeliveryModule();
-    bool ensureDeliveryObject(QString* error);
-    bool ensureDeliveryReady(QString* error);
-    void startBroadcastSend(const QString& broadcastId);
-    void startStagedUpload(const QString& uploadId);
-    void handleStagedUploadFailure(const QString& uploadId,
-                                   const QString& code,
-                                   const QString& error,
-                                   bool retryable);
-    void handleStagedUploadTimeout(const QString& uploadId,
-                                   qint64 attemptStartedAtMs,
-                                   int attempt);
-    void scheduleStagedUploadRetry(const QString& uploadId,
-                                   const QString& lastError);
-    void clearActiveUpload(const QString& uploadId);
-    void scheduleNextQueuedUpload();
-    void handleStorageUploadDone(const QVariantList& args);
-    void cleanupUploadFiles(const PendingUpload& pending) const;
-    QString pendingToJson(const PendingUpload& pending) const;
-    QString broadcastToJson(const PendingBroadcast& pending) const;
-    QString publishToJson(const PendingPublish& publish) const;
-    QString errorToJson(const QString& code, const QString& error) const;
-    void advancePublishAfterUpload(const QString& publishId);
-    void advancePublishAfterBroadcast(const QString& broadcastId);
-    void persistPublishRecord(const PendingPublish& publish);
-    void loadPublishLedger();
-    QString publishLedgerPath() const;
-
-    LogosAPI* m_logosAPI = nullptr;
-    LogosAPIClient* m_storageClient = nullptr;
-    LogosAPIClient* m_deliveryClient = nullptr;
-    LogosObject* m_storageEvents = nullptr;
-    LogosObject* m_deliveryObject = nullptr;
-    bool m_storageEventsSubscribed = false;
-    bool m_storageInitialized = false;
-    bool m_storageStarted = false;
-    bool m_deliveryObjectReady = false;
-    bool m_deliveryNodeCreated = false;
-    bool m_deliveryStarted = false;
-    QString m_activeUploadId;
-    QHash<QString, PendingUpload> m_uploads;
-    QHash<QString, PendingBroadcast> m_broadcasts;
-    QHash<QString, QString> m_sessionToUploadId;
-    QSet<QString> m_broadcastDedupe;
-    QHash<QString, PendingPublish> m_publishes;
-    QHash<QString, QString> m_publishDedupe;        // dedupeKey -> publishId
-    QHash<QString, QString> m_broadcastToPublishId; // broadcastId -> publishId
-
-    // ── Anchor config (phase 1 — see chronicle_anchor_config.h) ─────────────
-    AnchorConfig m_anchorConfig;
-    bool m_anchorConfigLoaded = false;
-
-    // Effective broadcast topic. Defaults to CHRONICLE_TOPIC; overridable
-    // by smoke tests via setBroadcastTopic.
-    QString m_broadcastTopic;
-
-    // ── Anchor ledger (persisted state, source of truth for the UI) ─────────
     struct AnchorRecord {
         QString publishId;
         QString cid;
-        QString metadataHash;
-        QString state;        // "confirmed" | "failed" — only terminal states persist
+        QString metaHash;
+        QString state;           // "confirmed" | "failed"
         QString txHash;
-        QString code;
-        QString error;
-        qint64  attemptedAtMs = 0;
-        qint64  confirmedAtMs = 0;
+        QString errCode;
+        QString errMsg;
+        qint64  attemptedMs  = 0;
+        qint64  confirmedMs  = 0;
     };
-    QHash<QString, AnchorRecord> m_anchors;
-    bool m_anchorsLoaded = false;
-    ChronicleAnchorClient* m_anchorClient = nullptr;
 
-    QString anchorLedgerPath() const;
-    void    loadAnchorLedger();
-    void    persistAnchorRecord(const AnchorRecord& record);
-    QJsonObject anchorRecordToJson(const AnchorRecord& record) const;
+    // ── Helpers ─────────────────────────────────────────────────────────────
+    void         initStorage();
+    void         initDelivery();
+    bool         storageReady(QString* err);
+    bool         deliveryReady(QString* err);
+    void         startUpload(const QString& uploadId);
+    void         onUploadDone(const QVariantList& args);
+    void         failUpload(const QString& id, const QString& code,
+                             const QString& msg, bool retryable);
+    void         scheduleRetry(const QString& uploadId, const QString& lastErr);
+    void         sendBroadcast(const QString& broadcastId);
+    void         afterUpload(const QString& publishId);
+    void         afterBroadcast(const QString& broadcastId);
+    void         savePublish(const PublishJob& job);
+    void         loadPublishLedger();
+    QString      publishLedgerPath() const;
+    void         loadAnchorLedger();
+    void         saveAnchor(const AnchorRecord& rec);
+    QString      anchorLedgerPath() const;
+    QString      uploadToJson(const UploadJob& j)     const;
+    QString      broadcastToJson(const BroadcastJob& j) const;
+    QString      publishToJson(const PublishJob& j)   const;
+    QJsonObject  anchorToJson(const AnchorRecord& r)  const;
+    QString      errJson(const QString& code, const QString& msg) const;
+
+    // ── State ────────────────────────────────────────────────────────────────
+    LogosAPI*       m_api             = nullptr;
+    LogosAPIClient* m_storageClient   = nullptr;
+    LogosAPIClient* m_deliveryClient  = nullptr;
+    LogosObject*    m_storageEvents   = nullptr;
+    LogosObject*    m_deliveryObj     = nullptr;
+    bool m_storageSubscribed  = false;
+    bool m_storageReady       = false;
+    bool m_deliveryObjReady   = false;
+    bool m_deliveryNodeUp     = false;
+    bool m_deliveryStarted    = false;
+
+    QString m_activeUploadId;
+    QHash<QString, UploadJob>    m_uploads;
+    QHash<QString, BroadcastJob> m_broadcasts;
+    QHash<QString, PublishJob>   m_publishes;
+    QHash<QString, QString>      m_sessionToUpload;
+    QSet<QString>                m_bcastDedupe;
+    QHash<QString, QString>      m_publishDedupe;    // dedupeKey → publishId
+    QHash<QString, QString>      m_bcastToPublish;   // broadcastId → publishId
+
+    AnchorConfig                  m_anchorCfg;
+    bool                          m_anchorCfgLoaded = false;
+    QHash<QString, AnchorRecord>  m_anchors;
+    bool                          m_anchorsLoaded   = false;
+    FfiClient*                    m_ffi             = nullptr;
+
+    QString m_broadcastTopic;
 };
 
 #endif // CHRONICLE_PLUGIN_H

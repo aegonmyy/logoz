@@ -3,71 +3,77 @@
 
 #include <chrono>
 
-#include <QHash>
+#include <QByteArray>
 #include <QJsonObject>
 #include <QString>
 #include <QStringList>
 #include <QtGlobal>
-#include <QVariantMap>
 
 #include "logos_types.h"
 
 namespace chronicle {
 
-constexpr int MAX_FILE_SIZE  = 100 * 1024 * 1024;
-constexpr int CHUNK_SIZE     = 64 * 1024;
-constexpr int RETRY_BUDGET_S = 90;
-constexpr int MAX_TITLE_LEN  = 200;
-constexpr int MAX_DESCRIPTION_LEN = 2000;
-constexpr int MAX_TAGS = 20;
-constexpr int MAX_TAG_LEN = 64;
-constexpr int MAX_CT_LEN     = 255;
-constexpr int MAX_ENVELOPE_BYTES = 8 * 1024;
-constexpr int METADATA_HASH_VERSION = 1;
-constexpr qint64 BASE_ATTEMPT_TIMEOUT_MS = 45 * 1000;
-constexpr qint64 PER_MIB_ATTEMPT_TIMEOUT_MS = 2 * 1000;
-constexpr qint64 MAX_ATTEMPT_TIMEOUT_MS = 5 * 60 * 1000;
-constexpr qint64 MIN_RETRY_BUDGET_MS = RETRY_BUDGET_S * 1000;
-constexpr qint64 MAX_RETRY_BUDGET_MS = 15 * 60 * 1000;
+// ── Limits ────────────────────────────────────────────────────────────────
+constexpr int    kMaxFileBytes        = 100 * 1024 * 1024;
+constexpr int    kMaxTitleLen         = 200;
+constexpr int    kMaxDescLen          = 2000;
+constexpr int    kMaxTagLen           = 64;
+constexpr int    kMaxTags             = 20;
+constexpr int    kMaxContentTypeLen   = 255;
+constexpr int    kMaxEnvelopeBytes    = 8 * 1024;
+constexpr int    kHashVersion         = 1;
 
-const QHash<QString, QString>& aliasMap();
-const QHash<QString, QString>& extensionMap();
+// ── Upload timing ─────────────────────────────────────────────────────────
+constexpr qint64 kBaseTimeoutMs    = 45'000;
+constexpr qint64 kPerMibTimeoutMs  = 2'000;
+constexpr qint64 kMaxTimeoutMs     = 5 * 60 * 1000;
+constexpr qint64 kMinBudgetMs      = 90 * 1000;
+constexpr qint64 kMaxBudgetMs      = 15 * 60 * 1000;
 
-QString normalizeContentType(const QString& input);
-QString sanitizeTitle(const QString& input);
-QString sanitizeDescription(const QString& input);
-QString sanitizeTag(const QString& input);
-QStringList normalizeTags(const QStringList& input);
-QString extensionFor(const QString& contentType);
-QString stripExtension(const QString& title, const QString& ext);
-QString synthesizeFilename(const QString& sanitizedTitle,
-                           const QString& contentType);
-QByteArray canonicalMetadataJson(const QString& contentType,
-                                 qint64 sizeBytes,
-                                 const QString& title,
-                                 const QString& description,
-                                 const QStringList& tags);
-QString hashMetadata(const QString& contentType,
+// Content-type normalisation
+QString coerceContentType(const QString& raw);
+QString fileExtension(const QString& mimeType);
+
+// Input sanitisation
+QString     cleanTitle(const QString& raw);
+QString     cleanDescription(const QString& raw);
+QString     cleanTag(const QString& raw);
+QStringList cleanTags(const QStringList& raw);
+
+// Canonical metadata JSON for hashing — deterministic field order
+QByteArray canonicalMetadata(const QString& contentType,
+                              qint64 sizeBytes,
+                              const QString& title,
+                              const QString& description,
+                              const QStringList& tags);
+
+// SHA-256 of canonicalMetadata, returned as "v1:<64-char hex>"
+QString metadataHash(const QString& contentType,
                      qint64 sizeBytes,
                      const QString& title,
                      const QString& description,
                      const QStringList& tags);
-QJsonObject buildMetadataEnvelope(const QString& cid,
-                                  const QString& contentType,
-                                  qint64 sizeBytes,
-                                  qint64 timestamp,
-                                  const QString& title,
-                                  const QString& description,
-                                  const QStringList& tags,
-                                  const QString& metadataHash);
-bool envelopeWithinCap(const QJsonObject& envelope);
 
-bool isTransientError(const QString& msg);
-std::chrono::milliseconds computeBackoff(int attempt);
-qint64 uploadAttemptTimeoutMs(qint64 sizeBytes);
-qint64 uploadRetryBudgetMs(qint64 sizeBytes);
+// Build a v=1 wire-format metadata envelope
+QJsonObject buildEnvelope(const QString& cid,
+                          const QString& contentType,
+                          qint64 sizeBytes,
+                          qint64 timestampMs,
+                          const QString& title,
+                          const QString& description,
+                          const QStringList& tags,
+                          const QString& metaHash);
 
-LogosResult failure(const QString& code, const QString& msg);
+bool envelopeFitsInCap(const QJsonObject& envelope);
+
+// Retry / backoff
+bool                      isTransient(const QString& errMsg);
+std::chrono::milliseconds backoffFor(int attempt);
+qint64                    uploadTimeoutMs(qint64 sizeBytes);
+qint64                    uploadBudgetMs(qint64 sizeBytes);
+
+// Convenience factory
+LogosResult makeErr(const QString& code, const QString& msg);
 
 }  // namespace chronicle
 
