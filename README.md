@@ -99,13 +99,17 @@ cd batch-anchor && cargo build
 ./target/debug/batch-anchor watch &
 ```
 
-### 5. Publish a document (via GUI)
+### 5. Run the end-to-end demo
 
 ```sh
-./demo.sh
+# Full anchor pipeline against a real local sequencer at RISC0_DEV_MODE=0:
+# deploy → fund → init registry → privacy-preserving index_batch (real proof)
+# → query by CID. Idempotent; DEMO_RESET=1 wipes the chain and starts clean.
+./scripts/demo.sh
 ```
 
-Or manually via the Basecamp UI: `lgs basecamp launch`.
+See `DEMO.md` for the recording runbook + narration script. To publish a
+document through the GUI instead: `lgs basecamp launch`.
 
 ## Querying the registry
 
@@ -167,15 +171,19 @@ stronger for the censorship-resistance use case.
 
 ## Deployed Registry
 
-Program ID (devnet):
+Program ID (deterministic, rc5 build):
 ```
-7ab2ad5dbcceca1a9d233b675f1c885162672599096cc4f1c604d415a42eef32
+96ad78fec3f1e5013967744268a2a1ac764e0c0cedc1713669e225d310b03e7b
 ```
+Registry PDA (seed `"registry"`): `HvCtoPL6RvYmqg8m7qkRqu4e2b1dHt4XsU2dz8eixdwe`
 
-> **Note**: This ID is from the deterministic build at this commit. The
-> CI anchor job extracts it dynamically via `spel program-id` rather than
-> reading this file, ensuring the on-chain program always matches the
-> built binary.
+> **Note**: This ID is reproduced exactly by `make build` at this commit and by
+> `./scripts/demo.sh`. The CI anchor job and the demo script both derive it
+> dynamically from the built binary rather than trusting this file, so the
+> on-chain program always matches the source. The original public-testnet
+> deployment is documented in `SUBMISSION_PR.md`; that rc5 testnet was wiped in
+> the Testnet v0.2.0 migration, so the demo runs against a local sequencer (same
+> rc5 build, same Program ID / PDA).
 
 ## License
 

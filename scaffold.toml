@@ -34,4 +34,8 @@ path = "idl"
 
 [localnet]
 port = 3040
-risc0_dev_mode = true
+# LP-0017 demo requires the local sequencer to verify REAL Groth16 proofs, so the
+# sequencer is spawned with RISC0_DEV_MODE=0 (lgs maps this bool → that env var).
+# Fast unit-test iteration uses RISC0_DEV_MODE=1 via the environment instead
+# (see Makefile `test` target); it does not read this value.
+risc0_dev_mode = false

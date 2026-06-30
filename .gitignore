@@ -27,3 +27,7 @@ result-*
 
 # Nix
 .direnv/
+
+# demo.sh runtime artifacts
+batch-anchor/.demo-lookup.toml
+batch-anchor/batch-anchor.demo.toml
