@@ -18,7 +18,7 @@ on:
 #
 # Out of scope here:
 #
-#   ✗ examples/    — depends on spel-framework + nssa_core, which transitively
+#   ✗ examples/    — depends on spel-framework + lee_core, which transitively
 #                    pull in logos-blockchain-pol. That crate's build.rs needs
 #                    the LOGOS_BLOCKCHAIN_CIRCUITS bundle. Built locally via
 #                    cargo, or in CI inside the anchor job (which fetches the
@@ -37,7 +37,10 @@ jobs:
         with:
           components: rustfmt
       - name: fmt (chronicle-registry workspace)
-        run: cargo fmt --all -- --check
+        # Scope to our own crates: `--all` would also descend into the
+        # vendored third-party spel-framework (pulled in as a path dep by
+        # examples/), whose upstream formatting we don't own and shouldn't gate on.
+        run: cargo fmt -p chronicle_registry_core -p 'chronicle_registry-examples' -- --check
       - name: fmt (batch-anchor)
         working-directory: batch-anchor
         run: cargo fmt --all -- --check
@@ -98,6 +101,8 @@ jobs:
         with:
           extra-conf: |
             accept-flake-config = true
+            extra-substituters = https://logoz.cachix.org
+            extra-trusted-public-keys = logoz.cachix.org-1:Jtd4Lh0/abPKd4ojFXPVngEK2nDUr3FIaSRIbGF8kJQ=
 
       - name: nix store cache
         uses: DeterminateSystems/magic-nix-cache-action@main
@@ -188,6 +193,8 @@ jobs:
         with:
           extra-conf: |
             accept-flake-config = true
+            extra-substituters = https://logoz.cachix.org
+            extra-trusted-public-keys = logoz.cachix.org-1:Jtd4Lh0/abPKd4ojFXPVngEK2nDUr3FIaSRIbGF8kJQ=
 
       - name: nix store cache
         uses: DeterminateSystems/magic-nix-cache-action@main
@@ -213,15 +220,16 @@ jobs:
           save-always: true
 
       - name: install lgs (logos-scaffold)
-        # Pinned via the same rev scaffold.toml references locally so CI
-        # exercises the same lgs as the dev box.
-        run: cargo install --git https://github.com/logos-co/logos-scaffold logos-scaffold
+        # Pinned to the exact rev the dev box used to produce the verified rc5
+        # testnet evidence, so CI exercises the same lgs (0.1.1) as the dev box.
+        run: cargo install --git https://github.com/logos-co/logos-scaffold --rev 9e4d148d08fd86213d3becc17d6863895048e9cb logos-scaffold
 
       - name: fetch logos-blockchain-circuits release
-        # `lgs setup` requires the circuits bundle. We pin v0.4.2 because
-        # that matches the dev box state — bump alongside scaffold.toml's
-        # LEZ pin if/when the upstream sequencer expects a newer circuit
-        # set. ~33MB tarball, untars to ~/.logos-blockchain-circuits/.
+        # `lgs setup` requires the circuits bundle. v0.4.2 is the version the
+        # dev box used to generate the Private/ anchorer proof that the rc5
+        # testnet (LEZ pin 27360cb7) ACCEPTED, so it is verified-compatible
+        # with our pin. Bump alongside scaffold.toml's LEZ pin if a future LEZ
+        # rev rejects it. ~33MB tarball, untars to ~/.logos-blockchain-circuits/.
         run: |
           curl -sL -o /tmp/circuits.tar.gz \
             https://github.com/logos-blockchain/logos-blockchain-circuits/releases/download/v0.4.2/logos-blockchain-circuits-v0.4.2-linux-x86_64.tar.gz
@@ -264,12 +272,12 @@ jobs:
         # so deploy is idempotent against the existing pin.
         run: |
           make build
-          NSSA_WALLET_HOME_DIR="$PWD/.scaffold/wallet" make deploy
+          LEE_WALLET_HOME_DIR="$PWD/.scaffold/wallet" make deploy
 
       - name: mint + fund CI signer
         id: signer
         run: |
-          export NSSA_WALLET_HOME_DIR="$PWD/.scaffold/wallet"
+          export LEE_WALLET_HOME_DIR="$PWD/.scaffold/wallet"
           NEW=$(lgs wallet -- account new public 2>&1 \
                 | sed -n 's|.*Public/\([A-Za-z0-9]\{32,\}\).*|\1|p' | head -1)
           if [[ -z "$NEW" ]]; then
@@ -326,7 +334,7 @@ jobs:
         # signer and the freshly-extracted program_id that way — the tracked
         # toml stays untouched. init doesn't care about content_topic.
         env:
-          NSSA_WALLET_HOME_DIR: ${{ github.workspace }}/.scaffold/wallet
+          LEE_WALLET_HOME_DIR: ${{ github.workspace }}/.scaffold/wallet
           BATCH_ANCHOR_REGISTRY__SIGNER_ACCOUNT_ID: ${{ steps.signer.outputs.signer }}
           BATCH_ANCHOR_REGISTRY__PROGRAM_ID: ${{ steps.program_id.outputs.hex }}
         working-directory: batch-anchor

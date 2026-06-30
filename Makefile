@@ -8,23 +8,13 @@ FFI_SO    := logos-chronicle/vendored/libchronicle_registry_ffi.so
 
 all: build ffi idl
 
-# Build the RISC0 guest binary using cargo risczero (deterministic Docker build).
-# Outputs: $(GUEST_ELF) (raw ELF)
-# Then wraps it into risc0 ProgramBinary format: $(GUEST_BIN)
+# Build the RISC0 guest binary deterministically via `cargo risczero build`
+# (runs the risc0 docker toolchain internally — no host-specific paths).
+# Outputs the raw ELF at $(GUEST_ELF); mk-program-binary then wraps it into
+# the risc0 ProgramBinary format that spel/lgs consume: $(GUEST_BIN).
 build:
-	DOCKER_BUILDKIT=0 docker build \
-		-t chronicle-registry-guest \
-		-f /tmp/guest.Dockerfile \
-		/workspaces/workspace/desk/logos/whistleblower
-	docker save chronicle-registry-guest -o /tmp/guest_image.tar
-	@mkdir -p $(dir $(GUEST_ELF))
-	@tar -xf /tmp/guest_image.tar -C /tmp --wildcards "*.tar" 2>/dev/null; \
-	  for blob in /tmp/*.tar; do \
-	    if tar -tf "$$blob" 2>/dev/null | grep -q chronicle_registry; then \
-	      tar -xf "$$blob" chronicle_registry -O > $(GUEST_ELF); \
-	      break; \
-	    fi; \
-	  done
+	cargo risczero build --manifest-path methods/guest/Cargo.toml
+	cargo build --release --manifest-path tools/Cargo.toml --bin mk-program-binary
 	tools/target/release/mk-program-binary $(GUEST_ELF) $(GUEST_BIN)
 	@echo "Built: $(GUEST_BIN)"
 	@spel program-id $(GUEST_BIN) --format hex

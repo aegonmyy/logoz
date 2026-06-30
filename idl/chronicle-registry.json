@@ -55,9 +55,7 @@
       "args": [
         {
           "name": "cids",
-          "type": {
-            "vec": "string"
-          }
+          "type": "string"
         },
         {
           "name": "metadata_hashes",

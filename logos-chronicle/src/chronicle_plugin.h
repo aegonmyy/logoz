@@ -94,6 +94,7 @@ private:
         qint64  nextRetryMs = 0;
         int     attempt     = 0;
         QString sessionId;
+        QString publishId;       // publish job this upload feeds (afterUpload)
         QString stagingDir;
         QString stagedPath;
     };

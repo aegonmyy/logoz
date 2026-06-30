@@ -77,11 +77,13 @@ fn spel_cmd(v: &Value) -> Result<Command, String> {
     cmd.arg("-i").arg(idl).arg("-p").arg(program_id);
 
     if let Some(wallet_home) = v["wallet_home"].as_str() {
-        cmd.env("NSSA_WALLET_HOME_DIR", wallet_home);
+        cmd.env("LEE_WALLET_HOME_DIR", wallet_home);
     }
-    if let Some(seq_url) = v["sequencer_url"].as_str() {
-        cmd.env("NSSA_SEQUENCER_URL", seq_url);
-    }
+    // LEZ rc5 takes the sequencer endpoint from the wallet home's
+    // wallet_config.json ("sequencer_addr"), not an env var — the old
+    // NSSA_SEQUENCER_URL is ignored. The "sequencer_url" arg is accepted for
+    // backward compatibility but has no effect; configure it in the wallet.
+    let _ = v["sequencer_url"].as_str();
     Ok(cmd)
 }
 
@@ -229,7 +231,7 @@ fn get_registry_impl(args: &str) -> Result<String, String> {
         .arg(format!("Public/{}", registry_pda))
         .arg("--raw");
     if !wallet_home.is_empty() {
-        cmd.env("NSSA_WALLET_HOME_DIR", wallet_home);
+        cmd.env("LEE_WALLET_HOME_DIR", wallet_home);
     }
 
     let output = cmd

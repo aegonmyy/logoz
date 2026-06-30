@@ -8,6 +8,8 @@ exclude = [
     "batch-anchor",
     "ffi",
     "tools",
+    "vendor/spel-framework",
+    "token-authority",
 ]
 resolver = "2"
 

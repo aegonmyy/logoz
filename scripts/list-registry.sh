@@ -12,7 +12,7 @@ TOML="$REPO/batch-anchor/batch-anchor.toml"
 ACCOUNT_ID="${ACCOUNT_ID:-$(grep -E '^signer_account_id' "$TOML" \
     | sed -E 's/.*"([^"]+)".*/\1/')}"
 
-NSSA_WALLET_HOME_DIR="$WALLET" \
+LEE_WALLET_HOME_DIR="$WALLET" \
     lgs wallet -- account get --account-id "Public/$ACCOUNT_ID" --raw 2>&1 \
     | grep -E '^\{' \
     | python3 - <<'PYEOF'
