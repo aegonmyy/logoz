@@ -10,11 +10,11 @@ path = "src/bin/main.rs"
 
 [dependencies]
 spel-framework-core = { path = "../spel-framework-core", features = ["idl-gen"] }
-lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "27360cb7d6ccb2bfbcca7d171bab8a3938490264", features = ["host"] }
-lee = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "27360cb7d6ccb2bfbcca7d171bab8a3938490264" }
-common = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "27360cb7d6ccb2bfbcca7d171bab8a3938490264" }
-sequencer_service_rpc = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "27360cb7d6ccb2bfbcca7d171bab8a3938490264", features = ["client"] }
-wallet = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "27360cb7d6ccb2bfbcca7d171bab8a3938490264" }
+lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "a58fbce2ff48c58b7bb5001b1a27e64b9596ee3a", features = ["host"] }
+lee = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "a58fbce2ff48c58b7bb5001b1a27e64b9596ee3a" }
+common = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "a58fbce2ff48c58b7bb5001b1a27e64b9596ee3a" }
+sequencer_service_rpc = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "a58fbce2ff48c58b7bb5001b1a27e64b9596ee3a", features = ["client"] }
+wallet = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "a58fbce2ff48c58b7bb5001b1a27e64b9596ee3a" }
 risc0-zkvm = { version = "3.0.3", features = ["std"] }
 base58 = "0.2"
 serde = { version = "1.0", features = ["derive"] }

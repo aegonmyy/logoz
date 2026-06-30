@@ -70,7 +70,7 @@ pub async fn execute_instruction(
     for (key, bin_path) in extra_bins {
         if !args.contains_key(key) {
             if let Ok(bytes) = fs::read(bin_path) {
-                if let Ok(program) = Program::new(bytes) {
+                if let Ok(program) = Program::new(bytes.into()) {
                     let id = program.id();
                     let id_str: Vec<String> = id.iter().map(|w| w.to_string()).collect();
                     let val = id_str.join(",");
@@ -178,7 +178,7 @@ pub async fn execute_instruction(
                 eprintln!("   Or configure in spel.toml.");
                 process::exit(1);
             });
-            let program = Program::new(program_bytecode).unwrap_or_else(|e| {
+            let program = Program::new(program_bytecode.into()).unwrap_or_else(|e| {
                 eprintln!("❌ Failed to load program: {:?}", e);
                 process::exit(1);
             });
@@ -353,7 +353,7 @@ pub async fn execute_instruction(
         let mut dependencies = HashMap::new();
         for (_, bin_path) in extra_bins {
             if let Ok(bytes) = fs::read(bin_path) {
-                if let Ok(dep_program) = Program::new(bytes) {
+                if let Ok(dep_program) = Program::new(bytes.into()) {
                     dependencies.insert(dep_program.id(), dep_program);
                 }
             }

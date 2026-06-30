@@ -497,7 +497,7 @@ fn compute_pda_command(idl: &SpelIdl, program_path: Option<&str>, program_id_hex
                 eprintln!("❌ Cannot read program binary '{}': {}", path, e);
                 std::process::exit(1);
             });
-            Program::new(program_bytes).unwrap_or_else(|e| {
+            Program::new(program_bytes.into()).unwrap_or_else(|e| {
                 eprintln!("❌ Invalid program binary: {:?}", e);
                 std::process::exit(1);
             }).id()

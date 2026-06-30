@@ -19,7 +19,7 @@ pub fn inspect_binaries(paths: &[String]) {
                 continue;
             }
         };
-        match Program::new(bytes) {
+        match Program::new(bytes.into()) {
             Ok(program) => {
                 let id = program.id();
                 let id_strs: Vec<String> = id.iter().map(|w| w.to_string()).collect();
