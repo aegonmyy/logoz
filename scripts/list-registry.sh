@@ -17,21 +17,24 @@ PDA="${PDA:-$("$CLI" init-registry --anchorer Public/111111111111111111111111111
 
 # `lgs wallet account get --raw` prints a `$ …` echo line then PRETTY-PRINTS the
 # JSON across multiple lines, so slice from the first `{` to the last `}`.
-LEE_WALLET_HOME_DIR="$WALLET" \
+ACCT_JSON="$(LEE_WALLET_HOME_DIR="$WALLET" \
     lgs wallet -- account get --account-id "Public/$PDA" --raw 2>&1 \
-    | sed -n '/^{/,/^}/p' \
-    | python3 - "$PDA" <<'PYEOF'
-import json, sys
+    | sed -n '/^{/,/^}/p')"
 
-pda = sys.argv[1]
-text = sys.stdin.read().strip()
+# Pass the JSON + PDA via the environment — NOT stdin — because `python3 -`
+# would consume its program from the heredoc and leave sys.stdin empty.
+PDA="$PDA" ACCT_JSON="$ACCT_JSON" python3 <<'PYEOF'
+import json, os
+
+pda  = os.environ["PDA"]
+text = os.environ.get("ACCT_JSON", "").strip()
 if not text:
     print(f"registry PDA {pda}: uninitialized / empty")
-    sys.exit(0)
+    raise SystemExit(0)
 
-raw = json.loads(text)
+raw  = json.loads(text)
 data = bytes.fromhex(raw["data"])
-pos = 0
+pos  = 0
 
 def read_u32():
     global pos
