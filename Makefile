@@ -17,7 +17,9 @@ build:
 	cargo build --release --manifest-path tools/Cargo.toml --bin mk-program-binary
 	tools/target/release/mk-program-binary $(GUEST_ELF) $(GUEST_BIN)
 	@echo "Built: $(GUEST_BIN)"
-	@spel program-id $(GUEST_BIN) --format hex
+	@command -v spel >/dev/null 2>&1 \
+		&& spel program-id $(GUEST_BIN) --format hex \
+		|| echo "(spel not on PATH — ProgramId already printed by mk-program-binary above)"
 
 # Build the Rust FFI cdylib used by logos-chronicle.
 ffi:
