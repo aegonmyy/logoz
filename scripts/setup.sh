@@ -65,7 +65,7 @@ echo "==> 4/8  host CLIs"
 [[ -x "$ANCHOR_BIN" ]] || (cd "$REPO/batch-anchor" && cargo build --bin batch-anchor)
 
 echo "==> 5/8  deploy program"
-NSSA_WALLET_HOME_DIR="$WALLET" make deploy >/dev/null
+LEE_WALLET_HOME_DIR="$WALLET" make deploy >/dev/null
 
 echo "==> 6/8  pin program_id"
 PROG_ID="$("$CLI_BIN" program-id "$PROGRAM_BIN" \
@@ -80,12 +80,12 @@ fi
 
 echo "==> 7/8  signer account"
 PINNED="$(grep -E '^signer_account_id' "$TOML" | sed -E 's/.*"([^"]+)".*/\1/')"
-if NSSA_WALLET_HOME_DIR="$WALLET" lgs wallet -- account list 2>/dev/null \
+if LEE_WALLET_HOME_DIR="$WALLET" lgs wallet -- account list 2>/dev/null \
         | grep -qF "Public/$PINNED"; then
     echo "     $PINNED already in wallet"
 else
     echo "     minting new Public account"
-    NEW_ID="$(NSSA_WALLET_HOME_DIR="$WALLET" lgs wallet -- account new public 2>&1 \
+    NEW_ID="$(LEE_WALLET_HOME_DIR="$WALLET" lgs wallet -- account new public 2>&1 \
                 | sed -n 's|.*Public/\([A-Za-z0-9]\{32,\}\).*|\1|p' | head -1)"
     [[ -n "$NEW_ID" ]] || { echo "ERROR: failed to mint signer" >&2; exit 1; }
     echo "     minted $NEW_ID"

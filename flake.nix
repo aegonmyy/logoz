@@ -1,6 +1,21 @@
 {
   description = "LP-0017 Whistleblower — censorship-resistant document publishing on Logos";
 
+  # The zerokit (RLN) crate's vendored-deps fixed-output derivation is fetched
+  # by nixpkgs' `fetch-cargo-vendor-util`, which sends no User-Agent and is
+  # therefore 403'd by crates.io (a stock-nixpkgs bug present in the pinned rev).
+  # That FOD is content-addressed and not served by any public cache, so a cold
+  # `nix build` of the GUI modules would fail on a clean machine / CI. We serve
+  # the prebuilt FOD from a public Cachix cache so clean clones substitute it
+  # instead of hitting crates.io. Reviewers need no auth (public read); with
+  # `accept-flake-config = true` nix uses it automatically.
+  nixConfig = {
+    extra-substituters = [ "https://logoz.cachix.org" ];
+    extra-trusted-public-keys = [
+      "logoz.cachix.org-1:Jtd4Lh0/abPKd4ojFXPVngEK2nDUr3FIaSRIbGF8kJQ="
+    ];
+  };
+
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
     nixpkgs.follows           = "logos-module-builder/nixpkgs";

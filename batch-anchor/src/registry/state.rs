@@ -91,7 +91,7 @@ impl RegistryClient {
     fn lgs(&self) -> Command {
         let mut cmd = Command::new("lgs");
         cmd.current_dir(&self.registry_dir)
-            .env("NSSA_WALLET_HOME_DIR", &self.wallet_home);
+            .env("LEE_WALLET_HOME_DIR", &self.wallet_home);
         cmd
     }
 
@@ -107,7 +107,7 @@ impl RegistryClient {
         cmd.arg("--")
             .args(args)
             .current_dir(&self.registry_dir)
-            .env("NSSA_WALLET_HOME_DIR", &self.wallet_home);
+            .env("LEE_WALLET_HOME_DIR", &self.wallet_home);
         cmd
     }
 
@@ -163,12 +163,15 @@ impl RegistryClient {
             anyhow::bail!("lgs wallet account get failed: {}{}", stdout, stderr);
         }
 
-        for line in stdout.lines() {
-            let line = line.trim();
-            if !line.starts_with('{') {
-                continue;
-            }
-            if let Ok(obj) = serde_json::from_str::<AccountGetOutput>(line) {
+        // lgs echoes the invoked command on a leading `$ …` line and
+        // pretty-prints the JSON across multiple lines, so parse the whole
+        // object (first '{' … last '}') rather than any single line. An
+        // uninitialized account prints "Account is Uninitialized" (no JSON),
+        // which has no braces → Ok(None).
+        if let (Some(start), Some(end)) = (stdout.find('{'), stdout.rfind('}')) {
+            if start <= end {
+                let obj: AccountGetOutput = serde_json::from_str(&stdout[start..=end])
+                    .context("parsing lgs account get JSON")?;
                 if let Some(hex_data) = obj.data {
                     let bytes = hex::decode(&hex_data).context("hex-decode account data")?;
                     return Ok(Some(bytes));
@@ -237,9 +240,11 @@ impl RegistryClient {
             crate::batch::MAX_BATCH
         );
 
+        // 0x-prefix so the spel CLI's decode_bytes_32 takes the hex branch
+        // (it tries base58 first; "0x…" is invalid base58 so it falls through).
         let hashes = entries
             .iter()
-            .map(|e| hex::encode(e.metadata_hash))
+            .map(|e| format!("0x{}", hex::encode(e.metadata_hash)))
             .collect::<Vec<_>>()
             .join(",");
         let timestamps = entries
@@ -248,17 +253,25 @@ impl RegistryClient {
             .collect::<Vec<_>>()
             .join(",");
 
-        let mut args: Vec<&str> = vec!["index-batch", "--anchorer", &self.signer_account_id];
-        for entry in entries {
-            args.push("--cids");
-            args.push(&entry.cid);
-        }
-        args.extend_from_slice(&[
+        // CIDs go as one comma-separated value (spel CLI has no Vec<String>
+        // arg type); the guest splits on ','. CIDs never contain commas.
+        let cids = entries
+            .iter()
+            .map(|e| e.cid.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let args: Vec<&str> = vec![
+            "index-batch",
+            "--anchorer",
+            &self.signer_account_id,
+            "--cids",
+            &cids,
             "--metadata-hashes",
             &hashes,
             "--anchor-timestamps",
             &timestamps,
-        ]);
+        ];
 
         debug!(count = entries.len(), "submitting index_batch");
         let output = self

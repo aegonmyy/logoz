@@ -1,7 +1,7 @@
 #![no_main]
 
 use spel_framework::prelude::*;
-use nssa_core::account::Data;
+use lee_core::account::Data;
 
 use chronicle_registry_core::{
     CidRecord, Registry, MAX_BATCH,
@@ -43,11 +43,15 @@ mod chronicle_registry {
         mut registry: AccountWithMetadata,
         #[account(signer)]
         anchorer: AccountWithMetadata,
-        cids: Vec<String>,
+        // CIDs are passed as one comma-separated string (spel CLI has no
+        // Vec<String> arg type); split here. CIDs are base32/base58 and never
+        // contain commas, so this is unambiguous.
+        cids: String,
         metadata_hashes: Vec<[u8; 32]>,
         anchor_timestamps: Vec<u32>,
     ) -> SpelResult {
         let cu_start = risc0_zkvm::guest::env::cycle_count();
+        let cids: Vec<String> = cids.split(',').map(|s| s.to_string()).collect();
         let n = cids.len();
         if n == 0 {
             return Err(SpelError::custom(E_BATCH_EMPTY, "batch is empty".to_string()));

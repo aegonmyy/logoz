@@ -102,15 +102,46 @@ Instructions:
 
 ## Compute unit benchmarks
 
-> Measured on LEZ devnet, `RISC0_DEV_MODE=0`
+> Measured against the public LEZ testnet (`https://testnet.lez.logos.co`, LEZ pin
+> `27360cb7`), `RISC0_DEV_MODE=0` (full Groth16 proofs).
 
-| Operation | Batch size | CU used |
-|-----------|-----------|---------|
-| `init_registry` | — | _TBD after deploy_ |
-| `index_batch` | 1 CID | _TBD_ |
-| `index_batch` | 50 CIDs | _TBD_ |
+| Operation | Batch size | CU (R0VM cycles) | Notes |
+|-----------|-----------|------------------|-------|
+| `init_registry` | — | 414 | one-time; registry already open, value from the original init run |
+| `index_batch` | 1 CID | 6537 | measured 2026-06-30, tx `f14e39c9…` (see Testnet evidence) |
+| `index_batch` | 50 CIDs | not yet benchmarked | — |
 
-_(Benchmarks to be filled in after sequencer deploy — program_id and CU counts are extracted by CI in `.github/workflows/ci.yml` anchor job.)_
+_CU is reported by the R0VM as `CU index_batch n=<k> cycles=<n>` at proof time._
+
+---
+
+## Testnet evidence (live, RISC0_DEV_MODE=0)
+
+Anchored on the public LEZ testnet `https://testnet.lez.logos.co` with full
+Groth16 proofs (no dev-mode). All artifacts below are reproducible from the
+binary in this repo (`make build` regenerates the exact program ID).
+
+| Item | Value |
+|------|-------|
+| Program ID | `96ad78fec3f1e5013967744268a2a1ac764e0c0cedc1713669e225d310b03e7b` |
+| Registry PDA | `HvCtoPL6RvYmqg8m7qkRqu4e2b1dHt4XsU2dz8eixdwe` (seed `"registry"`) |
+| `index_batch` tx (2026-06-30) | `f14e39c97fe90c5d50a802d1b750e020bd175b86758bc213496ab29779e9d6c6` |
+| Anchored by | `a6a60a47…e89d` — an **anonymous** `Private/` account (privacy-preserving tx) |
+| Registry contents | 2 CIDs, both retrievable via `batch-anchor lookup <cid>` |
+
+The `index_batch` transaction is **privacy-preserving**: it routes through the
+LEZ proving path because the anchorer is a `Private/` account, so the on-chain
+record's `anchored_by` is an anonymous key — the whistleblower's identity is not
+revealed while the document index stays publicly verifiable.
+
+Reproduce a lookup:
+
+```bash
+LEE_WALLET_HOME_DIR=.scaffold/wallet-tn \
+  batch-anchor/target/debug/batch-anchor -c <config> lookup \
+  bafyregen20260630whistleblower01
+# → CID / metadata_hash / anchor_timestamp / anchored_by / version, exit 0
+```
 
 ---
 
@@ -162,6 +193,24 @@ cd logoz
 
 Requires: `lgs` CLI, `nix` with flakes, `docker` (for RISC0 guest build), Rust stable.
 
+### Build cache (zerokit / RLN)
+
+The GUI modules transitively build the `zerokit` (RLN) crate, whose vendored-deps
+fixed-output derivation is fetched by nixpkgs' `fetch-cargo-vendor-util`. That
+helper sends no `User-Agent`, so crates.io 403s it (a stock-nixpkgs bug in the
+pinned rev) and a cold `nix build` fails on a clean machine. Because the FOD is
+content-addressed and served by no public cache, we host the prebuilt copy on a
+public Cachix cache and declare it in `flake.nix` `nixConfig`:
+
+```
+extra-substituters        = https://logoz.cachix.org
+extra-trusted-public-keys = logoz.cachix.org-1:Jtd4Lh0/abPKd4ojFXPVngEK2nDUr3FIaSRIbGF8kJQ=
+```
+
+Run nix with `--accept-flake-config` (or add the two lines to `nix.conf`) and the
+FOD is substituted automatically — no crates.io fetch, no auth required (public
+read). This is a workaround for the upstream nixpkgs bug, not a project quirk.
+
 ---
 
 ## Known issues filed
@@ -190,5 +239,6 @@ Requires: `lgs` CLI, `nix` with flakes, `docker` (for RISC0 guest build), Rust s
 - [x] CI pipeline defined
 - [x] Smoke tests for all four pipeline stages
 - [x] Desktop UI with history, anchor config dialog, connection status
-- [ ] CU benchmarks (pending sequencer deploy)
+- [x] Live testnet anchor (privacy-preserving) — tx `f14e39c9…`, reproducible lookup
+- [x] CU benchmarks: `init_registry`=414, `index_batch` n=1=6537 (n=50 not yet benchmarked)
 - [ ] Demo video

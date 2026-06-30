@@ -405,20 +405,20 @@ void ChroniclePlugin::startUpload(const QString& uid) {
                    QStringLiteral("upload attempt timed out"), true);
     });
 
-    const LogosResult res = parseLogosResult(
+    const CallResult res = parseCall(
         m_storageClient->invokeRemoteMethod(
             QStringLiteral("storage_module"), QStringLiteral("uploadUrl"),
             QVariant::fromValue(QUrl::fromLocalFile(it->stagedPath)),
             kChunkSize, Timeout(static_cast<int>(timeoutMs))));
-    if (!res.success) {
-        const QString e = res.getError();
+    if (!res.ok) {
+        const QString e = res.error;
         failUpload(uid, isTransient(e) ? QStringLiteral("STORAGE_UNAVAILABLE")
                                        : QStringLiteral("STORAGE_REJECTED"),
                    e, isTransient(e));
         return;
     }
 
-    const QString sessionId = res.value.toString();
+    const QString sessionId = res.value;
     if (sessionId.isEmpty()) {
         failUpload(uid, QStringLiteral("STORAGE_REJECTED"),
                    QStringLiteral("uploadUrl returned empty session id"), false);

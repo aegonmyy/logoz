@@ -108,7 +108,7 @@ QString cleanTag(const QString& raw) {
 
 QStringList cleanTags(const QStringList& raw) {
     QStringList out;
-    out.reserve(std::min(raw.size(), kMaxTags));
+    out.reserve(std::min<qsizetype>(raw.size(), kMaxTags));
     for (const QString& t : raw) {
         if (out.size() >= kMaxTags) break;
         const QString tag = cleanTag(t);
