@@ -276,6 +276,14 @@ jobs:
           LEE_WALLET_HOME_DIR: ${{ github.workspace }}/.scaffold/wallet
         run: |
           lgs setup
+          # lgs (DEFAULT_LEZ v0.1.2) reads the wallet config at <lez>/wallet/...,
+          # but the rc5 pin nests it under lez/wallet/... — bridge it before any
+          # wallet op, else `lgs wallet` fails "missing wallet debug config in lez
+          # repo". (bench-cu.sh re-applies the same idempotent symlinks later.)
+          REV=$(grep -E '^[[:space:]]*pin[[:space:]]*=' scaffold.toml | head -1 | sed -E 's/.*"([0-9a-f]+)".*/\1/')
+          LEZ="$HOME/.cache/logos-scaffold/repos/lez/$REV"
+          [ -d "$LEZ/lez/sequencer" ] && ln -sfn lez/sequencer "$LEZ/sequencer"
+          [ -d "$LEZ/lez/wallet" ]    && ln -sfn lez/wallet    "$LEZ/wallet"
           lgs wallet -- account new public
 
       - name: on-chain anchor e2e (bench-cu.sh, localnet dev-mode)
