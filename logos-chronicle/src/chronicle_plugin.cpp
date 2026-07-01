@@ -94,6 +94,18 @@ struct CallResult { bool ok = false; QString value; QString error; };
 CallResult parseCall(const QVariant& v) {
     CallResult r;
     if (!v.isValid()) { r.error = QStringLiteral("no response"); return r; }
+    // Module methods declared to return LogosResult (storage_module,
+    // delivery_module, …) come back over Qt Remote Objects as a QVariant
+    // wrapping the registered LogosResult metatype, whose toString() is empty —
+    // so unwrap it explicitly rather than mis-reading it as an empty response.
+    // e.g. storage_module::uploadUrl returns {success, value=<sessionId>}.
+    if (v.canConvert<LogosResult>()) {
+        const LogosResult lr = v.value<LogosResult>();
+        r.ok = lr.success;
+        if (lr.success) r.value = lr.value.toString();
+        else            r.error = lr.error.toString();
+        return r;
+    }
     if (v.typeId() == QMetaType::Bool) {
         r.ok = v.toBool();
         if (!r.ok) r.error = QStringLiteral("call returned false");

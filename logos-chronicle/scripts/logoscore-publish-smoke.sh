@@ -160,7 +160,8 @@ assert len(items) >= 1, f"no items after restart"
 ids   = [it.get("publish_id") for it in items]
 assert eid in ids, f"{eid} not in {ids}"
 match = next(it for it in items if it["publish_id"] == eid)
-assert match.get("status") == "done", f"status after restart: {match.get(\"status\")}"
+st = match.get("status")
+assert st == "done", f"status after restart: {st}"
 print(f"persistence ok ({len(items)} record(s))")
 ' <<<"$LIST_RESP"
 
