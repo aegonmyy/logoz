@@ -17,8 +17,8 @@
 # Why a local sequencer: the prize requires "a reproducible end-to-end demo
 # script [that] works against a real local sequencer with RISC0_DEV_MODE=0".
 # The public LEZ testnet this app was originally verified against was wiped in
-# the Testnet v0.2.0 migration (see SUBMISSION_PR.md); the local sequencer runs
-# the same rc5 build and the same code path.
+# the Testnet v0.2.0 migration; the local sequencer runs the same rc5 build and
+# the same code path.
 #
 # Idempotent: safe to re-run. Pass DEMO_RESET=1 to wipe the localnet + wallet
 # and start from genesis.

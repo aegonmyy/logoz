@@ -31,3 +31,12 @@ result-*
 # demo.sh runtime artifacts
 batch-anchor/.demo-lookup.toml
 batch-anchor/batch-anchor.demo.toml
+
+# Local-only working docs — kept on disk, not part of the submitted tree
+/DEMO.md
+/GITHUB_ISSUES.md
+/SUBMISSION_PR.md
+
+# Editor / assistant tooling configs
+/.claude/
+/.cursor/

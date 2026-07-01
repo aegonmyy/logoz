@@ -108,8 +108,7 @@ cd batch-anchor && cargo build
 ./scripts/demo.sh
 ```
 
-See `DEMO.md` for the recording runbook + narration script. To publish a
-document through the GUI instead: `lgs basecamp launch`.
+To publish a document through the GUI instead: `lgs basecamp launch`.
 
 ## Querying the registry
 
@@ -180,10 +179,9 @@ Registry PDA (seed `"registry"`): `HvCtoPL6RvYmqg8m7qkRqu4e2b1dHt4XsU2dz8eixdwe`
 > **Note**: This ID is reproduced exactly by `make build` at this commit and by
 > `./scripts/demo.sh`. The CI anchor job and the demo script both derive it
 > dynamically from the built binary rather than trusting this file, so the
-> on-chain program always matches the source. The original public-testnet
-> deployment is documented in `SUBMISSION_PR.md`; that rc5 testnet was wiped in
-> the Testnet v0.2.0 migration, so the demo runs against a local sequencer (same
-> rc5 build, same Program ID / PDA).
+> on-chain program always matches the source. The original public-testnet (rc5)
+> deployment was wiped in the Testnet v0.2.0 migration, so the demo runs against
+> a local sequencer (same rc5 build, same Program ID / PDA).
 
 ## License
 
