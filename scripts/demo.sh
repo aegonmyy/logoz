@@ -95,14 +95,20 @@ ok "ProgramId $PROGRAM_ID"
 # ── 4. Deterministic local wallet ────────────────────────────────────────────
 c "4/9  wallet (deterministic, password-protected)"
 WALLET_BIN="$LEZ/target/release/wallet"
+# Wallet subcommands are interactive: they prompt for the unlock password on the
+# terminal. Feed it on stdin so the demo never blocks on an (often hidden)
+# prompt. If a call ever still prompts, its stderr is no longer swallowed, so
+# you'll SEE it and can type the password below.
+w() { printf '%s\n' "$LOGOS_SCAFFOLD_WALLET_PASSWORD" | "$WALLET_BIN" "$@"; }
+echo "→ wallet unlock password: $LOGOS_SCAFFOLD_WALLET_PASSWORD  (auto-fed on stdin; only type it if a prompt appears)"
 # Recreate the wallet when resetting (its private notes are tied to the wiped
 # chain) or when the on-disk storage was written by an incompatible schema.
-if [ "${DEMO_RESET:-0}" = 1 ] || ! "$WALLET_BIN" account list >/dev/null 2>&1; then
+if [ "${DEMO_RESET:-0}" = 1 ] || ! w account list >/dev/null; then
   echo "→ (re)initialising wallet storage"
   rm -f "$WALLET_DIR/storage.json" "$REPO/.scaffold/state/wallet.state"
-  "$WALLET_BIN" account list >/dev/null 2>&1 || true
+  w account list >/dev/null || true
 fi
-mapfile -t ACCTS < <("$WALLET_BIN" account list 2>/dev/null | sed -nE 's#^/ (Public|Private)/([1-9A-HJ-NP-Za-km-z]+).*#\1 \2#p')
+mapfile -t ACCTS < <(w account list 2>/dev/null | sed -nE 's#^/ (Public|Private)/([1-9A-HJ-NP-Za-km-z]+).*#\1 \2#p')
 DEPLOYER="$(printf '%s\n' "${ACCTS[@]}" | awk '$1=="Public"{print $2; exit}')"
 ANCHORER="$(printf '%s\n' "${ACCTS[@]}" | awk '$1=="Private"{print $2; exit}')"
 [ -n "$DEPLOYER" ] && [ -n "$ANCHORER" ] || die "wallet missing a Public deployer and/or Private anchorer"
@@ -143,14 +149,14 @@ c "6/9  fund deployer (faucet) + shield to private anchorer"
 # Initialise the deployer under the auth-transfer program (idempotent), then
 # claim from the local faucet. Genesis-authorisation (phase 5) is what lets the
 # init succeed — otherwise it fails ClaimedUnauthorizedAccount.
-"$WALLET_BIN" auth-transfer init --account-id "Public/$DEPLOYER" >/dev/null 2>&1 || true
+w auth-transfer init --account-id "Public/$DEPLOYER" >/dev/null 2>&1 || true
 lgs wallet topup "Public/$DEPLOYER" 2>&1 | grep -E "topup complete|pending|Address:" || true
-BAL="$("$WALLET_BIN" account get --account-id "Public/$DEPLOYER" 2>/dev/null | sed -n 's/.*"balance":\([0-9]*\).*/\1/p')"
+BAL="$(w account get --account-id "Public/$DEPLOYER" 2>/dev/null | sed -n 's/.*"balance":\([0-9]*\).*/\1/p')"
 echo "  deployer spendable balance: ${BAL:-0}"
 [ "${BAL:-0}" -gt 0 ] || die "faucet did not fund the deployer (balance ${BAL:-0}) — check the sequencer"
 echo "→ shielding $FAUCET_AMOUNT public→private (this is itself a proving tx, ~minutes)…"
-"$WALLET_BIN" auth-transfer send --from "Public/$DEPLOYER" --to "Private/$ANCHORER" --amount "$FAUCET_AMOUNT"
-"$WALLET_BIN" account sync-private >/dev/null 2>&1 || true
+w auth-transfer send --from "Public/$DEPLOYER" --to "Private/$ANCHORER" --amount "$FAUCET_AMOUNT"
+w account sync-private >/dev/null 2>&1 || true
 ok "deployer funded; anchorer holds shielded balance"
 
 # ── 7. Deploy + open registry ────────────────────────────────────────────────
