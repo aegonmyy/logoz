@@ -275,15 +275,23 @@ jobs:
           LOGOS_SCAFFOLD_WALLET_PASSWORD: logosdemo50
           LEE_WALLET_HOME_DIR: ${{ github.workspace }}/.scaffold/wallet
         run: |
-          lgs setup
-          # lgs (DEFAULT_LEZ v0.1.2) reads the wallet config at <lez>/wallet/...,
-          # but the rc5 pin nests it under lez/wallet/... — bridge it before any
-          # wallet op, else `lgs wallet` fails "missing wallet debug config in lez
-          # repo". (bench-cu.sh re-applies the same idempotent symlinks later.)
-          REV=$(grep -E '^[[:space:]]*pin[[:space:]]*=' scaffold.toml | head -1 | sed -E 's/.*"([0-9a-f]+)".*/\1/')
-          LEZ="$HOME/.cache/logos-scaffold/repos/lez/$REV"
+          # `lgs setup` clones+builds lez, then (setup.rs:102) calls
+          # prepare_wallet_home, which copies <lez>/wallet/configs/debug/
+          # wallet_config.json. The rc5 pin (DEFAULT_LEZ is still the flat v0.1.2)
+          # nests that under lez/wallet/..., and lez is not on disk until setup
+          # clones it — so the FIRST setup necessarily reaches prepare_wallet_home
+          # before we can bridge the layout, and dies there ("missing wallet debug
+          # config in lez repo"). Tolerate that first failure, bridge the nested
+          # layout, then re-run setup (repo already synced, builds cached under
+          # ~/.cache/logos-scaffold) so prepare_wallet_home now finds the config.
+          lgs setup || echo "first setup stopped at prepare_wallet_home (pre-bridge, expected)"
+          LEZ=$(find "$HOME/.cache/logos-scaffold/repos/lez" -maxdepth 1 -mindepth 1 -type d | head -1)
+          echo "bridging lez layout at: $LEZ"
           [ -d "$LEZ/lez/sequencer" ] && ln -sfn lez/sequencer "$LEZ/sequencer"
           [ -d "$LEZ/lez/wallet" ]    && ln -sfn lez/wallet    "$LEZ/wallet"
+          test -f "$LEZ/wallet/configs/debug/wallet_config.json" \
+            || { echo "::error::bridge failed: wallet_config.json unreachable under $LEZ"; ls -la "$LEZ" 2>&1 || true; exit 1; }
+          lgs setup
           lgs wallet -- account new public
 
       - name: on-chain anchor e2e (bench-cu.sh, localnet dev-mode)

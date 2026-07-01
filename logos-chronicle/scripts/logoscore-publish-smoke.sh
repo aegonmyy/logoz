@@ -35,7 +35,14 @@ _stop_all() {
     [[ -n "${SRC_FILE:-}" ]] && rm -f "$SRC_FILE"
     local rem
     rem="$(pgrep -af "$WORK_DIR" | grep -v "pgrep -af" || true)"
-    [[ -n "$rem" ]] && { echo "WARN: lingering processes tied to $WORK_DIR:" >&2; echo "$rem" >&2; }
+    if [[ -n "$rem" ]]; then
+        echo "WARN: lingering processes tied to $WORK_DIR:" >&2
+        echo "$rem" >&2
+    fi
+    # Never let the EXIT trap's last statement decide the script's exit code:
+    # a bare `[[ -n "$rem" ]] && …` returns 1 on the clean (no-lingering) path,
+    # which would fail an otherwise-successful smoke run.
+    return 0
 }
 trap _stop_all EXIT INT TERM
 
