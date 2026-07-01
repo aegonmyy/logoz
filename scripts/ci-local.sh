@@ -8,7 +8,9 @@ REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO"
 
 echo "--- fmt: chronicle-registry workspace"
-cargo fmt --all -- --check
+# Scope to our own crates (matches ci.yml): `--all` would also descend into the
+# vendored third-party spel-framework, whose upstream formatting we don't own.
+cargo fmt -p chronicle_registry_core -p 'chronicle_registry-examples' -- --check
 
 echo "--- fmt: batch-anchor"
 (cd batch-anchor && cargo fmt --all -- --check)
