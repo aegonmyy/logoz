@@ -102,8 +102,6 @@ jobs:
         with:
           extra-conf: |
             accept-flake-config = true
-            extra-substituters = https://logoz.cachix.org
-            extra-trusted-public-keys = logoz.cachix.org-1:Jtd4Lh0/abPKd4ojFXPVngEK2nDUr3FIaSRIbGF8kJQ=
 
       - name: nix store cache
         uses: DeterminateSystems/magic-nix-cache-action@main
@@ -193,8 +191,6 @@ jobs:
         with:
           extra-conf: |
             accept-flake-config = true
-            extra-substituters = https://logoz.cachix.org
-            extra-trusted-public-keys = logoz.cachix.org-1:Jtd4Lh0/abPKd4ojFXPVngEK2nDUr3FIaSRIbGF8kJQ=
 
       - name: nix store cache
         uses: DeterminateSystems/magic-nix-cache-action@main

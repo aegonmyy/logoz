@@ -1,20 +1,14 @@
 {
   description = "LP-0017 Whistleblower — censorship-resistant document publishing on Logos";
 
-  # The zerokit (RLN) crate's vendored-deps fixed-output derivation is fetched
-  # by nixpkgs' `fetch-cargo-vendor-util`, which sends no User-Agent and is
-  # therefore 403'd by crates.io (a stock-nixpkgs bug present in the pinned rev).
-  # That FOD is content-addressed and not served by any public cache, so a cold
-  # `nix build` of the GUI modules would fail on a clean machine / CI. We serve
-  # the prebuilt FOD from a public Cachix cache so clean clones substitute it
-  # instead of hitting crates.io. Reviewers need no auth (public read); with
-  # `accept-flake-config = true` nix uses it automatically.
-  nixConfig = {
-    extra-substituters = [ "https://logoz.cachix.org" ];
-    extra-trusted-public-keys = [
-      "logoz.cachix.org-1:Jtd4Lh0/abPKd4ojFXPVngEK2nDUr3FIaSRIbGF8kJQ="
-    ];
-  };
+  # Known issue (cold GUI build only): the zerokit (RLN) crate's vendored-deps
+  # fixed-output derivation is fetched by nixpkgs' `fetch-cargo-vendor-util`,
+  # which sends no User-Agent and can be 403'd by crates.io (a stock-nixpkgs bug
+  # at the pinned rev). If you hit that on a clean `nix build .#whistleblower-install`,
+  # supply a binary cache that already holds the `zerokit-*-vendor` path (via
+  # `--extra-substituters`), or build from a machine where that FOD is already
+  # materialised. This does NOT affect the terminal demo, the chronicle module,
+  # or CI (which does not build the GUI); the GUI also ships as a prebuilt `.lgx`.
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
