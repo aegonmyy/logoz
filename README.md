@@ -179,9 +179,17 @@ Registry PDA (seed `"registry"`): `HvCtoPL6RvYmqg8m7qkRqu4e2b1dHt4XsU2dz8eixdwe`
 > **Note**: This ID is reproduced exactly by `make build` at this commit and by
 > `./scripts/demo.sh`. The CI anchor job and the demo script both derive it
 > dynamically from the built binary rather than trusting this file, so the
-> on-chain program always matches the source. The original public-testnet (rc5)
-> deployment was wiped in the Testnet v0.2.0 migration, so the demo runs against
-> a local sequencer (same rc5 build, same Program ID / PDA).
+> on-chain program always matches the source.
+
+**Live on the hosted LEZ v0.2.0 testnet.** The registry is deployed and
+exercised end-to-end on `https://testnet.lez.logos.co/` (LEZ `v0.2.0`, commit
+`a58fbce2`) at `RISC0_DEV_MODE=0` — the Program ID and PDA above are reproduced
+on-chain, a CID was anchored via a real Groth16 proof
+(tx `02d8781403acc8f851eb87c1c8ffa29183a352a3d8733d3dd87e2eeb051b494a`), and
+`lookup` confirms it. Full details, tx hashes, and reproduction steps:
+[`docs/testnet-v020-live-evidence-20260702.md`](docs/testnet-v020-live-evidence-20260702.md).
+The one-command `./scripts/demo.sh` runs the same flow against a local sequencer
+for reproducibility.
 
 ## License
 

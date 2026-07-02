@@ -1,0 +1,46 @@
+[2m2026-07-02T04:54:28.694910Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m Seeding dedup set from on-chain registry ...
+[2m2026-07-02T04:54:29.060268Z[0m [34mDEBUG[0m [2mbatch_anchor::registry::state[0m[2m:[0m derived registry PDA [3mpda[0m[2m=[0mHvCtoPL6RvYmqg8m7qkRqu4e2b1dHt4XsU2dz8eixdwe
+[2m2026-07-02T04:54:29.369667Z[0m [34mDEBUG[0m [2mbatch_anchor::registry::state[0m[2m:[0m registry decoded [3mentries[0m[2m=[0m0
+[2m2026-07-02T04:54:29.369792Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m 0 CIDs already anchored on-chain
+[2m2026-07-02T04:54:29.433470Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m Waiting for nwaku at http://127.0.0.1:8645 ...
+[2m2026-07-02T04:54:29.441495Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m nwaku ready
+[2m2026-07-02T04:54:29.441519Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m Catching up via store-protocol (last 24h) ...
+[2m2026-07-02T04:54:29.444720Z[0m [34mDEBUG[0m [2mbatch_anchor::delivery::client[0m[2m:[0m store page fetched [3mpage_size[0m[2m=[0m2 [3mtotal[0m[2m=[0m2
+[2m2026-07-02T04:54:29.444753Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m Catch-up: 2 historical message(s) seen, 1 new to anchor
+[2m2026-07-02T04:54:29.448085Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m Subscribed to /chronicle/1/document-index/json
+[2m2026-07-02T04:54:29.448105Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m Polling every 1000ms — send broadcasts now ...
+[2m2026-07-02T04:54:30.450816Z[0m [34mDEBUG[0m [2mbatch_anchor::delivery::client[0m[2m:[0m drained 1 raw message(s)
+[2m2026-07-02T04:54:30.450908Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m envelope received [3mcid[0m[2m=[0mbafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi [3mmetadata_hash[0m[2m=[0md589da5dc9c2f751409669f9f0df72baab52683f4824ae5f8b760f07b5f64ad5 [3mmetadata[0m[2m=[0m{"cid":"bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi","metadata_hash":"v1:d589da5dc9c2f751409669f9f0df72baab52683f4824ae5f8b760f07b5f64ad5","timestamp":1782968068,"title":"live-testnet anchor evidence","v":1}
+[2m2026-07-02T04:54:59.532094Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m FLUSH: anchoring 1 CID(s) ...
+[2m2026-07-02T04:54:59.532290Z[0m [34mDEBUG[0m [2mbatch_anchor::registry::state[0m[2m:[0m submitting index_batch [3mcount[0m[2m=[0m1
+[2m2026-07-02T04:56:02.255370Z[0m [34mDEBUG[0m [2mbatch_anchor::registry::state[0m[2m:[0m index-batch succeeded [3mstdout[0m[2m=[0m📋 Instruction: index_batch
+
+Accounts:
+  📦 registry → HvCtoPL6RvYmqg8m7qkRqu4e2b1dHt4XsU2dz8eixdwe (PDA)
+    seeds: [program_id, "registry"]
+  📦 anchorer → 0x05ca7c4a989a05f6a0295993ee176558ffe4ba1173b292949acf96c3ff528759
+
+Arguments (parsed):
+  cids = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+  metadata_hashes = [0xd589da5dc9c2f751409669f9f0df72baab52683f4824ae5f8b760f07b5f64ad5]
+  anchor_timestamps = [1782968046]
+
+🔧 Transaction:
+  program-id: 96ad78fec3f1e5013967744268a2a1ac764e0c0cedc1713669e225d310b03e7b
+  instruction index: 1
+  instruction: IndexBatch {
+    cids: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+    metadata_hashes: [0xd589da5dc9c2f751409669f9f0df72baab52683f4824ae5f8b760f07b5f64ad5],
+    anchor_timestamps: [1782968046],
+  }
+
+  Serialized instruction data (52 u32 words):
+    [00000001, 0000003b, 79666162, 67696562, 7a727964, 66733574, 64753770, 7568376d, 68753637, 36327937, 6533666e, 6c797566, 66626171, 6c636f33, 79717467, 62663535, 0069647a, 00000001, 000000d5, 00000089, 000000da, 0000005d, 000000c9, 000000c2, 000000f7, 00000051, 00000040, 00000096, 00000069, 000000f9, 000000f0, 000000df, 00000072, 000000ba, 000000ab, 00000052, 00000068, 0000003f, 00000048, 00000024, 000000ae, 0000005f, 0000008b, 00000076, 0000000f, 00000007, 000000b5, 000000f6, 0000004a, 000000d5, 00000001, 6a45eeee]
+
+📤 Submitting transaction...
+📤 Transaction submitted!
+   tx_hash: 02d8781403acc8f851eb87c1c8ffa29183a352a3d8733d3dd87e2eeb051b494a
+   Waiting for confirmation...
+✅ Transaction confirmed — included in a block.
+
+[2m2026-07-02T04:56:02.255501Z[0m [32m INFO[0m [2mbatch_anchor::cmd::watch[0m[2m:[0m Anchored 1 CID(s) on-chain
