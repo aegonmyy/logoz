@@ -165,7 +165,7 @@ stronger for the censorship-resistance use case.
 | F2 | Broadcast metadata envelope to Logos Delivery | `logos-chronicle/src/chronicle_plugin.cpp` |
 | F3 | UI "Anchor on-chain" action | `logos-whistleblower/src/qml/Main.qml` + `logos-chronicle/src/chronicle_plugin.cpp` |
 | F4 | Batch anchor CLI | `batch-anchor/` |
-| F5a | On-chain registry (LEZ SPEL program) | `methods/guest/src/bin/chronicle_registry.rs` + IDL at `idl/chronicle-registry.json` |
+| F5a | On-chain registry (LEZ SPEL program) | `methods/guest/src/bin/chronicle_registry.rs` + IDL at `idl/chronicle-registry.idl.json` |
 | F6 | Document-indexing module (extracted, reusable) | `logos-chronicle/` |
 
 ## Deployed Registry

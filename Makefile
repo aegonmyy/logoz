@@ -1,7 +1,7 @@
 GUEST_SRC := methods/guest/src/bin/chronicle_registry.rs
 GUEST_ELF := methods/guest/target/riscv32im-risc0-zkvm-elf/docker/chronicle_registry
 GUEST_BIN := methods/guest/target/riscv32im-risc0-zkvm-elf/docker/chronicle_registry.bin
-IDL       := idl/chronicle-registry.json
+IDL       := idl/chronicle-registry.idl.json
 FFI_SO    := logos-chronicle/vendored/libchronicle_registry_ffi.so
 
 .PHONY: build ffi idl deploy inspect fmt clippy test clean all
